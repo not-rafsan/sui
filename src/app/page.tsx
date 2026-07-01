@@ -112,10 +112,10 @@ export default function Home() {
     }).then(() => refresh());
   };
 
-  // Editor view
+  // Editor view — smooth transition with fade-in
   if (view === 'editor' && editingCarousel) {
     return (
-      <div className="h-screen flex flex-col bg-[#080808]">
+      <div className="h-screen flex flex-col bg-[#080808] animate-in fade-in duration-300">
         <CarouselEditor
           initialSlides={editingCarousel.slides}
           initialTitle={editingCarousel.title}

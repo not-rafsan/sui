@@ -57,15 +57,16 @@ OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks) with this e
 
 RULES:
 - Generate exactly ${chapterCount} content chapters (plus 1 cover + 1 CTA = ${chapterCount + 2} total slides)
-- Cover slide: bold headline about the topic, subtitle with timeframe or hook
+- Cover slide title: Must be 3-5 words, ALL CAPS. The most important/impactful word should naturally be the longest word (it will be displayed BIGGER). Example: "AI AUTOMATED DROPSHIPPING SYSTEM" or "PASSIVE INCOME MACHINE BLUEPRINT"
+- Cover slide subtitle: timeframe or hook like "IN 7 DAYS ONLY" or "STEP BY STEP GUIDE", ALL CAPS, under 8 words
+- Cover slide accentText: a small label like "THE COMPLETE GUIDE" or "MONEY MAKING GUIDE"
 - Content slides: progressive journey from getting started to scaling earnings
-- CTA slide: "SAVE TO START" as title, "FOLLOW @yourhandle FOR MORE" as subtitle
-- All text should be concise (Instagram carousel style)
+- Each content slide has 3-5 concise bullet points (5-12 words each)
+- CTA slide: "SAVE TO START" as title, "FOLLOW FOR MORE" as subtitle, "@YOURHANDLE" as accentText
+- All text should be concise and punchy (Instagram carousel style for a 3M+ follower page)
 - Use real, specific numbers and tools where possible
-- Each bullet point should be 5-15 words
-- earningPotential should be realistic and progressive ($100-$500 for chapter 1, scaling up)
-- Title should be 3-6 words, all caps
-- Subtitle should be under 15 words`;
+- earningPotential should be realistic and progressive
+- Keep bullet points SHORT — each 5-12 words max for clean layout`;
 
     const userPrompt = `Create a high-quality Instagram carousel about: "${topic}"
 

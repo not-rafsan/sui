@@ -30,4 +30,27 @@ Stage Summary:
 - High-quality PNG export (1080x1350 @ 2x) for each slide
 - Google Sheets CSV import with batch carousel generation
 - Instagram Graph API integration with OAuth connect, scheduling, and simulated posting
-- All lint checks pass, dev server runs clean
+- All lint checks pass, dev server runs clean---
+Task ID: 1
+Agent: Main Agent
+Task: Redesign carousel slides to EXACTLY match reference images + fix layout transition
+
+Work Log:
+- Analyzed all 3 reference images (cxcs.png, dwar.png, dwe.png) with VLM for pixel-level detail extraction
+- Identified critical differences: circles should be SOLID WHITE FILLED (not outlines), text was WAY too small (percentage-based CSS resolving to tiny sizes), dividers should be 8px thick (not 2px), bullet markers should be white filled circles (not tiny ● characters)
+- Completely rewrote src/components/carousel/slide-renderer.tsx with:
+  - Solid white circles (420px top-right, 380px bottom-left) partially cropped outside canvas
+  - Scattered white dots (4-5px) in corner quadrants
+  - Cover slide: multi-line title with longest word displayed LARGER (112px vs 76px), 8px thick divider, 36px subtitle
+  - Content slide: 108px CHAPTER heading, 8px thick underline, 18px white circle bullet markers, 40px bullet text
+  - CTA slide: 108px main text, 8px divider, 34px subtitle
+  - All font sizes now absolute pixel values (not unreliable CSS percentages)
+- Added fade-in animation to editor view transition in page.tsx
+- Updated research API prompt for better multi-word title generation
+
+Stage Summary:
+- slide-renderer.tsx completely rewritten to match reference design
+- page.tsx updated with smooth fade-in transition
+- research/route.ts prompt improved for design-aligned content
+- Build compiles successfully with 0 errors
+
