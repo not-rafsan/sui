@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Carousel {
+  id        String   @id @default(cuid())
+  title     String
+  topic     String
+  slides    String   // JSON array of slides
+  status    String   @default("draft") // draft, ready, scheduled, posted
+  caption   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduledPosts ScheduledPost[]
+}
+
+model ScheduledPost {
+  id              String   @id @default(cuid())
+  carouselId      String
+  scheduledTime   DateTime?
+  instagramPostId String?
+  status          String   @default("pending") // pending, scheduled, posted, failed
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  carousel Carousel @relation(fields: [carouselId], references: [id], onDelete: Cascade)
+}
+
+model InstagramAccount {
+  id               String   @id @default(cuid())
+  username         String
+  accessToken      String
+  refreshToken     String?
+  tokenExpiresAt   DateTime?
+  instagramUserId  String
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
