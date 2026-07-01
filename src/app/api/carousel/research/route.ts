@@ -84,19 +84,34 @@ Return ONLY the JSON object, no other text.`;
 
     const content = response.choices[0]?.message?.content || '';
 
-    // Clean the response - remove markdown code blocks if present
-    let cleanedContent = content.trim();
-    if (cleanedContent.startsWith('```json')) {
-      cleanedContent = cleanedContent.slice(7);
-    } else if (cleanedContent.startsWith('```')) {
-      cleanedContent = cleanedContent.slice(3);
-    }
-    if (cleanedContent.endsWith('```')) {
-      cleanedContent = cleanedContent.slice(0, -3);
-    }
-    cleanedContent = cleanedContent.trim();
+    // Robust JSON extraction — handle various LLM output formats
+    let jsonStr = content.trim();
 
-    const carouselData = JSON.parse(cleanedContent);
+    // Remove markdown code fences (```json ... ``` or ``` ... ```)
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1].trim();
+    }
+
+    // Try to extract JSON object if there's surrounding text
+    const firstBrace = jsonStr.indexOf('{');
+    const lastBrace = jsonStr.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+    }
+
+    // Fix common JSON issues: trailing commas
+    jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+
+    let carouselData: Record<string, unknown>;
+    try {
+      carouselData = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.error('JSON parse error, raw content:', content.substring(0, 500));
+      console.error('Cleaned content:', jsonStr.substring(0, 500));
+      console.error('Parse error:', parseErr);
+      return NextResponse.json({ error: 'AI returned invalid data. Please try again.' }, { status: 500 });
+    }
 
     // Validate the structure
     if (!carouselData.slides || !Array.isArray(carouselData.slides)) {
