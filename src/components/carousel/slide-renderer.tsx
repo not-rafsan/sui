@@ -310,8 +310,8 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
     <div style={{
       position: 'relative', width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
-      alignItems: 'center',
-      padding: '70px 100px', boxSizing: 'border-box',
+      justifyContent: 'center', alignItems: 'center',
+      padding: '80px 90px', boxSizing: 'border-box',
     }}>
       <SlideBackground />
 
@@ -319,7 +319,8 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
       <div style={{
         textAlign: 'center',
         position: 'relative', zIndex: 1,
-        marginBottom: '14px',
+        marginBottom: '12px',
+        overflow: 'visible',
       }}>
         <EditableText
           text={`CHAPTER ${String(slide.chapterNumber).padStart(2, '0')}`}
@@ -329,44 +330,46 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
           tag="h2"
           style={{
             fontFamily: '"Space Grotesk", system-ui, sans-serif',
-            fontSize: '124px',
+            fontSize: '108px',
             fontWeight: 700,
             color: '#FFFFFF',
-            letterSpacing: '5px',
+            letterSpacing: '6px',
             lineHeight: 1.05,
             textTransform: 'uppercase',
+            overflow: 'visible',
           }}
         />
       </div>
 
-      {/* Thick underline below chapter */}
+      {/* Thick underline below chapter — centered */}
       <div style={{
-        width: '55%',
-        height: '18px',
+        width: '50%',
+        height: '14px',
         backgroundColor: '#FFFFFF',
-        marginBottom: '44px',
+        marginBottom: '40px',
         position: 'relative', zIndex: 1,
       }} />
 
-      {/* Bullet points with white filled circle markers */}
+      {/* Bullet points — CENTER ALIGNED with white filled circle markers */}
       <div style={{
         display: 'flex', flexDirection: 'column',
-        gap: '28px',
+        gap: '24px',
         width: '100%',
         position: 'relative', zIndex: 1,
-        flex: 1,
-        justifyContent: 'flex-start',
+        alignItems: 'center',
       }}>
         {bullets.map((point: string, i: number) => (
           <div key={i} style={{
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: '22px',
+            gap: '10px',
+            width: '100%',
           }}>
-            {/* White filled circle bullet marker */}
+            {/* White filled circle bullet marker — centered */}
             <div style={{
-              width: '16px',
-              height: '16px',
+              width: '14px',
+              height: '14px',
               borderRadius: '50%',
               backgroundColor: '#FFFFFF',
               flexShrink: 0,
@@ -379,12 +382,13 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
               tag="div"
               style={{
                 fontFamily: '"Space Grotesk", system-ui, sans-serif',
-                fontSize: '40px',
+                fontSize: '36px',
                 fontWeight: 400,
                 color: '#FFFFFF',
-                lineHeight: 1.4,
-                letterSpacing: '1px',
-                flex: 1,
+                lineHeight: 1.35,
+                letterSpacing: '0.5px',
+                textAlign: 'center',
+                width: '85%',
               }}
             />
           </div>

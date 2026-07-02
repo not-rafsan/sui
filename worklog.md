@@ -54,3 +54,26 @@ Stage Summary:
 - research/route.ts prompt improved for design-aligned content
 - Build compiles successfully with 0 errors
 
+
+---
+Task ID: 1
+Agent: main
+Task: Center-align all text in carousel content slides (title + bullet points), vertically center content block, fix CHAPTER number clipping
+
+Work Log:
+- Analyzed reference images (cxcs.png, dwar.png, dwe.png) with VLM to confirm ALL text is horizontally centered and content is vertically centered
+- Discovered the mapping: cxcs.png = content slide (CHAPTER 01 + bullets), dwar.png = cover slide, dwe.png = CTA slide
+- Rewrote ContentSlideComponent: changed from left-aligned bullets to center-aligned layout
+- Changed bullet layout from horizontal (circle + text side by side) to vertical (circle above text, both centered)
+- Added `justifyContent: 'center'` to content slide container for vertical centering (was `flex-start` causing bottom gap)
+- Reduced CHAPTER font from 124px to 108px and added `overflow: 'visible'` to prevent clipping
+- Reduced underline from 18px to 14px height, 55% to 50% width for better proportions
+- Bullet text now uses `textAlign: 'center'` with `width: '85%'`
+- Verified cover and CTA slides already have proper center alignment
+- Build compiles with 0 errors
+
+Stage Summary:
+- Content slides now have full center alignment matching reference images
+- CHAPTER numbers fully visible (smaller font + overflow visible)
+- No more large empty gap at bottom of content slides
+- All 3 slide types (cover, content, CTA) are now consistently center-aligned
