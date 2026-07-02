@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Slide Preview Test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { background: #111; margin: 0; padding: 40px; display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; }
+  .slide { width: 360px; height: 450px; position: relative; overflow: hidden; background: #000; flex-shrink: 0; }
+  .slide-inner { width: 1080px; height: 1350px; transform: scale(0.333); transform-origin: top left; position: relative; }
+  .bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .circle-tr { position: absolute; top: -150px; right: -250px; width: 320px; height: 320px; border-radius: 50%; background: #FFF; }
+  .circle-bl { position: absolute; bottom: -130px; left: -150px; width: 280px; height: 280px; border-radius: 50%; background: #FFF; }
+  .dot { position: absolute; border-radius: 50%; background: #FFF; }
+  .z1 { position: relative; z-index: 1; }
+  .title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #FFF; text-transform: uppercase; line-height: 1.08; letter-spacing: 2px; }
+  .title-sm { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #FFF; text-transform: uppercase; line-height: 1.08; letter-spacing: 2px; font-size: 68px; }
+  .title-lg { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #FFF; text-transform: uppercase; line-height: 1.08; letter-spacing: 3px; font-size: 126px; }
+  .subtitle { font-family: 'Space Grotesk', sans-serif; font-weight: 500; color: #FFF; text-transform: uppercase; letter-spacing: 5px; line-height: 1.2; font-size: 42px; }
+  .accent { font-family: 'Space Grotesk', sans-serif; font-weight: 400; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.45em; font-size: 22px; }
+  .chapter { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #FFF; text-transform: uppercase; font-size: 124px; letter-spacing: 5px; line-height: 1.05; }
+  .bullet-row { display: flex; align-items: center; gap: 22px; }
+  .bullet-dot { width: 16px; height: 16px; border-radius: 50%; background: #FFF; flex-shrink: 0; }
+  .bullet-text { font-family: 'Space Grotesk', sans-serif; font-weight: 400; color: #FFF; font-size: 40px; line-height: 1.4; letter-spacing: 1px; }
+  .cta-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #FFF; text-transform: uppercase; font-size: 118px; letter-spacing: 8px; line-height: 1.1; }
+  .cta-sub { font-family: 'Space Grotesk', sans-serif; font-weight: 400; color: rgba(255,255,255,0.6); text-transform: uppercase; font-size: 38px; letter-spacing: 6px; line-height: 1.3; }
+  label { color: #888; font-family: monospace; font-size: 11px; margin-bottom: 6px; display: block; }
+</style>
+</head>
+<body>
+
+<div>
+  <label>COVER SLIDE</label>
+  <div class="slide"><div class="slide-inner">
+    <div class="bg">
+      <div class="circle-tr"></div>
+      <div class="circle-bl"></div>
+      <div class="dot" style="left:55px;top:80px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:130px;top:155px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:200px;top:55px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:850px;top:1020px;width:4px;height:4px;opacity:0.7"></div>
+      <div class="dot" style="left:920px;top:1100px;width:4px;height:4px;opacity:0.7"></div>
+      <div class="dot" style="left:780px;top:1160px;width:4px;height:4px;opacity:0.7"></div>
+    </div>
+    <div style="position:relative;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:60px 80px;box-sizing:border-box;text-align:center;">
+      <p class="accent z1" style="margin-bottom:24px;">THE COMPLETE GUIDE</p>
+      <div class="z1" style="display:flex;flex-direction:column;align-items:center;">
+        <h1 class="title-sm z1">AI AUTOMATED</h1>
+        <h1 class="title-lg z1">DROPSHIPPING</h1>
+        <h1 class="title-sm z1">SYSTEM</h1>
+      </div>
+      <div class="z1" style="width:55%;height:7px;background:#FFF;margin:28px 0;"></div>
+      <p class="subtitle z1">IN 7 DAYS ONLY</p>
+    </div>
+  </div></div>
+</div>
+
+<div>
+  <label>CONTENT SLIDE</label>
+  <div class="slide"><div class="slide-inner">
+    <div class="bg">
+      <div class="circle-tr"></div>
+      <div class="circle-bl"></div>
+      <div class="dot" style="left:55px;top:80px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:130px;top:155px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:200px;top:55px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:850px;top:1020px;width:4px;height:4px;opacity:0.7"></div>
+      <div class="dot" style="left:920px;top:1100px;width:4px;height:4px;opacity:0.7"></div>
+    </div>
+    <div style="position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;padding:70px 100px;box-sizing:border-box;">
+      <div class="z1" style="text-align:center;margin-bottom:14px;">
+        <h2 class="chapter">CHAPTER 01</h2>
+      </div>
+      <div class="z1" style="width:55%;height:18px;background:#FFF;margin-bottom:44px;"></div>
+      <div class="z1" style="display:flex;flex-direction:column;gap:28px;width:100%;flex:1;justify-content:flex-start;">
+        <div class="bullet-row"><div class="bullet-dot"></div><div class="bullet-text">Find a low-competition niche with high demand</div></div>
+        <div class="bullet-row"><div class="bullet-dot"></div><div class="bullet-text">Use AI tools to validate product viability</div></div>
+        <div class="bullet-row"><div class="bullet-dot"></div><div class="bullet-text">Set up automated supplier connections</div></div>
+        <div class="bullet-row"><div class="bullet-dot"></div><div class="bullet-text">Launch your first test products fast</div></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<div>
+  <label>CTA SLIDE</label>
+  <div class="slide"><div class="slide-inner">
+    <div class="bg">
+      <div class="circle-tr"></div>
+      <div class="circle-bl"></div>
+      <div class="dot" style="left:55px;top:80px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:130px;top:155px;width:5px;height:5px;opacity:0.8"></div>
+      <div class="dot" style="left:850px;top:1020px;width:4px;height:4px;opacity:0.7"></div>
+      <div class="dot" style="left:920px;top:1100px;width:4px;height:4px;opacity:0.7"></div>
+    </div>
+    <div style="position:relative;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:60px 80px;box-sizing:border-box;text-align:center;">
+      <h1 class="cta-title z1" style="width:100%;">SAVE TO START</h1>
+      <div class="z1" style="width:50%;height:16px;background:#FFF;margin:32px 0;"></div>
+      <p class="cta-sub z1">FOLLOW FOR MORE</p>
+      <p class="z1" style="font-family:'Space Grotesk',sans-serif;font-weight:400;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.35em;font-size:22px;margin-top:32px;">@YOURHANDLE</p>
+    </div>
+  </div></div>
+</div>
+
+</body></html>

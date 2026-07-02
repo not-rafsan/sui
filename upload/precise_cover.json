@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) 25%  \n2) 15%  \n3) 12%  \n4) 6%  \n5) 0.5%  \n6) 4%",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1782984835,
+  "id": "202607021733511f194da6085d4be0",
+  "model": "glm-4.6v",
+  "object": "chat.completion",
+  "request_id": "202607021733511f194da6085d4be0",
+  "usage": {
+    "completion_tokens": 40,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1457,
+    "prompt_tokens_details": {
+      "cached_tokens": 4
+    },
+    "total_tokens": 1497
+  }
+}

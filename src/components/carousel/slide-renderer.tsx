@@ -38,37 +38,37 @@ interface SlideRendererProps {
   totalSlides?: number;
 }
 
-/* ── Decorative Background — EXACT match to reference images ── */
+/* ── Decorative Background — precise match to reference (VLM-measured) ── */
 function SlideBackground() {
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-      {/* SOLID WHITE circle — top right, partially cropped outside canvas */}
+      {/* SOLID WHITE circle — top right, mostly outside canvas, only a crescent peeks in */}
       <div style={{
         position: 'absolute',
-        top: '-120px',
-        right: '-140px',
-        width: '420px',
-        height: '420px',
+        top: '-150px',
+        right: '-250px',
+        width: '320px',
+        height: '320px',
         borderRadius: '50%',
         backgroundColor: '#FFFFFF',
       }} />
 
-      {/* SOLID WHITE circle — bottom left, partially cropped outside canvas */}
+      {/* SOLID WHITE circle — bottom left, mostly outside canvas, only a crescent peeks in */}
       <div style={{
         position: 'absolute',
-        bottom: '-110px',
-        left: '-130px',
-        width: '380px',
-        height: '380px',
+        bottom: '-130px',
+        left: '-150px',
+        width: '280px',
+        height: '280px',
         borderRadius: '50%',
         backgroundColor: '#FFFFFF',
       }} />
 
-      {/* Scattered small white dots — top left quadrant */}
+      {/* Scattered small white dots — top left area */}
       {[
-        { x: 55, y: 80 }, { x: 120, y: 160 }, { x: 190, y: 60 },
-        { x: 85, y: 240 }, { x: 160, y: 130 }, { x: 240, y: 200 },
-        { x: 110, y: 310 }, { x: 200, y: 280 },
+        { x: 55, y: 80 }, { x: 130, y: 155 }, { x: 200, y: 55 },
+        { x: 90, y: 235 }, { x: 175, y: 125 }, { x: 250, y: 195 },
+        { x: 115, y: 310 }, { x: 210, y: 275 },
       ].map((d, i) => (
         <div key={`tl${i}`} style={{
           position: 'absolute',
@@ -82,7 +82,7 @@ function SlideBackground() {
         }} />
       ))}
 
-      {/* Scattered small white dots — bottom right quadrant */}
+      {/* Scattered small white dots — bottom right area */}
       {[
         { x: 850, y: 1020 }, { x: 920, y: 1100 }, { x: 780, y: 1160 },
         { x: 970, y: 1050 }, { x: 890, y: 1180 }, { x: 740, y: 1080 },
@@ -100,9 +100,9 @@ function SlideBackground() {
         }} />
       ))}
 
-      {/* A few extra scattered dots for density — mid areas */}
+      {/* A few extra scattered dots — mid edges */}
       {[
-        { x: 30, y: 500 }, { x: 950, y: 400 },
+        { x: 30, y: 500 }, { x: 960, y: 400 },
         { x: 50, y: 900 }, { x: 1000, y: 700 },
       ].map((d, i) => (
         <div key={`mid${i}`} style={{
@@ -174,11 +174,9 @@ function EditableText({
   );
 }
 
-/* ── COVER SLIDE — Multi-line title with keyword emphasis + thick divider + subtitle ── */
+/* ── COVER SLIDE ── */
 function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; editable?: boolean; onEdit?: (p: string, v: string) => void }) {
-  // Split title into words and highlight the longest/most important word
   const titleWords = slide.title.split(' ');
-  // Find the keyword (usually the business/money word — pick the longest word as the emphasized one)
   const emphasisIdx = titleWords.reduce((maxI, w, i, arr) => w.length > arr[maxI].length ? i : maxI, 0);
 
   return (
@@ -211,13 +209,13 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
         />
       )}
 
-      {/* Main title — multi-line, with keyword line LARGER */}
+      {/* Title — multi-line, keyword line BIGGER */}
       <div style={{
         position: 'relative', zIndex: 1,
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         lineHeight: 1.08,
       }}>
-        {/* First part before the keyword */}
+        {/* Words before the keyword */}
         <EditableText
           text={titleWords.slice(0, emphasisIdx).join(' ')}
           path="title"
@@ -226,7 +224,7 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
           tag="h1"
           style={{
             fontFamily: '"Space Grotesk", system-ui, sans-serif',
-            fontSize: '76px',
+            fontSize: '68px',
             fontWeight: 700,
             color: '#FFFFFF',
             letterSpacing: '2px',
@@ -235,7 +233,7 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
             display: titleWords.slice(0, emphasisIdx).join(' ') ? 'block' : 'none',
           }}
         />
-        {/* Keyword line — MUCH BIGGER */}
+        {/* Keyword — BIGGEST line */}
         <EditableText
           text={titleWords[emphasisIdx] || ''}
           path="title"
@@ -244,7 +242,7 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
           tag="h1"
           style={{
             fontFamily: '"Space Grotesk", system-ui, sans-serif',
-            fontSize: '112px',
+            fontSize: '126px',
             fontWeight: 700,
             color: '#FFFFFF',
             letterSpacing: '3px',
@@ -253,7 +251,7 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
             display: titleWords[emphasisIdx] ? 'block' : 'none',
           }}
         />
-        {/* Remaining words after keyword */}
+        {/* Words after the keyword */}
         <EditableText
           text={titleWords.slice(emphasisIdx + 1).join(' ')}
           path="title"
@@ -262,7 +260,7 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
           tag="h1"
           style={{
             fontFamily: '"Space Grotesk", system-ui, sans-serif',
-            fontSize: '76px',
+            fontSize: '68px',
             fontWeight: 700,
             color: '#FFFFFF',
             letterSpacing: '2px',
@@ -273,12 +271,12 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
         />
       </div>
 
-      {/* THICK white divider line */}
+      {/* White divider */}
       <div style={{
         width: '55%',
-        height: '8px',
+        height: '7px',
         backgroundColor: '#FFFFFF',
-        margin: '32px 0',
+        margin: '28px 0',
         position: 'relative', zIndex: 1,
       }} />
 
@@ -291,10 +289,10 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
         tag="p"
         style={{
           fontFamily: '"Space Grotesk", system-ui, sans-serif',
-          fontSize: '36px',
+          fontSize: '42px',
           fontWeight: 500,
           color: '#FFFFFF',
-          letterSpacing: '4px',
+          letterSpacing: '5px',
           textTransform: 'uppercase',
           lineHeight: 1.2,
           position: 'relative', zIndex: 1,
@@ -304,7 +302,7 @@ function CoverSlideComponent({ slide, editable, onEdit }: { slide: CoverSlide; e
   );
 }
 
-/* ── CONTENT SLIDE — Large CHAPTER XX + thick underline + bullet points with circle markers ── */
+/* ── CONTENT SLIDE ── */
 function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlide; editable?: boolean; onEdit?: (p: string, v: string) => void }) {
   const bullets = Array.isArray(slide.bulletPoints) ? slide.bulletPoints : [];
 
@@ -313,7 +311,7 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
       position: 'relative', width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center',
-      padding: '70px 90px', boxSizing: 'border-box',
+      padding: '70px 100px', boxSizing: 'border-box',
     }}>
       <SlideBackground />
 
@@ -321,7 +319,7 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
       <div style={{
         textAlign: 'center',
         position: 'relative', zIndex: 1,
-        marginBottom: '18px',
+        marginBottom: '14px',
       }}>
         <EditableText
           text={`CHAPTER ${String(slide.chapterNumber).padStart(2, '0')}`}
@@ -331,26 +329,26 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
           tag="h2"
           style={{
             fontFamily: '"Space Grotesk", system-ui, sans-serif',
-            fontSize: '108px',
+            fontSize: '124px',
             fontWeight: 700,
             color: '#FFFFFF',
-            letterSpacing: '6px',
-            lineHeight: 1.1,
+            letterSpacing: '5px',
+            lineHeight: 1.05,
             textTransform: 'uppercase',
           }}
         />
       </div>
 
-      {/* THICK underline below chapter */}
+      {/* Thick underline below chapter */}
       <div style={{
-        width: '50%',
-        height: '8px',
+        width: '55%',
+        height: '18px',
         backgroundColor: '#FFFFFF',
-        marginBottom: '50px',
+        marginBottom: '44px',
         position: 'relative', zIndex: 1,
       }} />
 
-      {/* Bullet points with WHITE FILLED CIRCLE markers */}
+      {/* Bullet points with white filled circle markers */}
       <div style={{
         display: 'flex', flexDirection: 'column',
         gap: '28px',
@@ -367,8 +365,8 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
           }}>
             {/* White filled circle bullet marker */}
             <div style={{
-              width: '18px',
-              height: '18px',
+              width: '16px',
+              height: '16px',
               borderRadius: '50%',
               backgroundColor: '#FFFFFF',
               flexShrink: 0,
@@ -396,7 +394,7 @@ function ContentSlideComponent({ slide, editable, onEdit }: { slide: ContentSlid
   );
 }
 
-/* ── CTA SLIDE — Large centered text + thick divider + follow text ── */
+/* ── CTA SLIDE ── */
 function CTASlideComponent({ slide, editable, onEdit }: { slide: CTASlide; editable?: boolean; onEdit?: (p: string, v: string) => void }) {
   return (
     <div style={{
@@ -407,7 +405,7 @@ function CTASlideComponent({ slide, editable, onEdit }: { slide: CTASlide; edita
     }}>
       <SlideBackground />
 
-      {/* Main CTA text — LARGE */}
+      {/* Main CTA text */}
       <EditableText
         text={slide.title}
         path="title"
@@ -416,7 +414,7 @@ function CTASlideComponent({ slide, editable, onEdit }: { slide: CTASlide; edita
         tag="h1"
         style={{
           fontFamily: '"Space Grotesk", system-ui, sans-serif',
-          fontSize: '108px',
+          fontSize: '118px',
           fontWeight: 700,
           color: '#FFFFFF',
           letterSpacing: '8px',
@@ -427,12 +425,12 @@ function CTASlideComponent({ slide, editable, onEdit }: { slide: CTASlide; edita
         }}
       />
 
-      {/* THICK white divider */}
+      {/* Thick white divider */}
       <div style={{
         width: '50%',
-        height: '8px',
+        height: '16px',
         backgroundColor: '#FFFFFF',
-        margin: '36px 0',
+        margin: '32px 0',
         position: 'relative', zIndex: 1,
       }} />
 
@@ -445,7 +443,7 @@ function CTASlideComponent({ slide, editable, onEdit }: { slide: CTASlide; edita
         tag="p"
         style={{
           fontFamily: '"Space Grotesk", system-ui, sans-serif',
-          fontSize: '34px',
+          fontSize: '38px',
           fontWeight: 400,
           color: 'rgba(255,255,255,0.6)',
           letterSpacing: '6px',
