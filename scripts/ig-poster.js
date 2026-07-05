@@ -24,7 +24,7 @@ try {
   process.exit(1);
 }
 
-const { accessToken, pageId, igBusinessId, carouselId, caption, username, images } = payload;
+const { accessToken, pageId, igBusinessId, carouselId, caption, username, images, music } = payload;
 const API_VERSION = 'v21.0';
 const API_BASE = `https://graph.facebook.com/${API_VERSION}`;
 
@@ -145,13 +145,38 @@ async function main() {
 
     // Step 3: Create IG media containers
     const containerIds = [];
+    let musicSkipped = false;
     for (let i = 0; i < cdnUrls.length; i++) {
-      const container = await httpPost(
-        `${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`,
-        JSON.stringify({ image_url: cdnUrls[i] }),
-        { 'Content-Type': 'application/json' }
-      );
-      containerIds.push(container.id);
+      const containerPayload: Record<string, unknown> = { image_url: cdnUrls[i] };
+      // Add music to carousel items (only real IG asset IDs, not catalog IDs)
+      if (music && music.music_asset_id && !music.music_asset_id.startsWith('_')) {
+        containerPayload.music = music;
+      }
+      try {
+        const container = await httpPost(
+          `${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`,
+          JSON.stringify(containerPayload),
+          { 'Content-Type': 'application/json' }
+        );
+        containerIds.push(container.id);
+      } catch (musicErr) {
+        // If music causes an error, retry without it
+        if (music && music.music_asset_id) {
+          if (!musicSkipped) {
+            console.error(`  [Music] API rejected music, posting without: ${musicErr.message.substring(0, 100)}`);
+            musicSkipped = true;
+          }
+          const retryPayload = { image_url: cdnUrls[i] };
+          const container = await httpPost(
+            `${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`,
+            JSON.stringify(retryPayload),
+            { 'Content-Type': 'application/json' }
+          );
+          containerIds.push(container.id);
+        } else {
+          throw musicErr;
+        }
+      }
       if (i < cdnUrls.length - 1) await new Promise(r => setTimeout(r, 1000));
     }
 

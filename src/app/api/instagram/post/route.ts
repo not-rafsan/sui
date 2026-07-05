@@ -10,7 +10,7 @@ const QUEUE_DIR = join(process.cwd(), 'temp', 'ig-queue');
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { carouselId, caption, images } = body;
+    const { carouselId, caption, images, music } = body;
 
     if (!carouselId || typeof carouselId !== 'string') {
       return NextResponse.json({ error: 'Carousel ID is required' }, { status: 400 });
@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       caption: caption || carousel.caption || '',
       username: account.username,
       images,
+      music: music || null,
     };
 
     const pendingPath = join(QUEUE_DIR, 'pending', `${jobId}.json`);
