@@ -174,16 +174,15 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
     if (!confirm(`Post "${selectedCarousel.title}" to @${username} now? This will upload ${slides.length} slides.`)) return;
 
     setIsPosting(true);
-    setPostProgress('Preparing...');
+    setPostProgress('Generating slide images...');
     setResult(null);
 
     try {
       // Step 1: Generate PNG images from slides
-      setPostProgress('Generating slide images...');
       const images = await generateSlideImages(slides);
-      setPostProgress('Uploading to Instagram...');
+      setPostProgress('Sending to queue...');
 
-      // Step 2: Send to API for posting
+      // Step 2: Queue the post (instant response — no server crash)
       const res = await fetch('/api/instagram/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,20 +194,46 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
       });
 
       const data = await res.json();
-      setPostProgress('');
 
-      if (res.ok) {
-        setResult({
-          success: true,
-          message: data.message + (data.url ? `\n\nView: ${data.url}` : ''),
-        });
-        onActionComplete();
-      } else {
-        setResult({
-          success: false,
-          message: data.error || 'Failed to post to Instagram.',
-        });
+      if (!res.ok) {
+        setPostProgress('');
+        setResult({ success: false, message: data.error || 'Failed to queue post.' });
+        setIsPosting(false);
+        return;
       }
+
+      // Step 3: Poll for result (daemon processes in background)
+      const jobId = data.jobId;
+      setPostProgress('Uploading to Instagram (this takes 30-60s)...');
+
+      const pollResult = await new Promise<{ success: boolean; message: string }>((resolve) => {
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts++;
+          try {
+            const statusRes = await fetch(`/api/instagram/post?jobId=${jobId}`);
+            const statusData = await statusRes.json();
+
+            if (statusData.status === 'done' || statusData.success) {
+              clearInterval(interval);
+              resolve({ success: true, message: statusData.message + (statusData.url ? `\n\nView: ${statusData.url}` : '') });
+            } else if (statusData.status === 'error' || statusData.success === false) {
+              clearInterval(interval);
+              resolve({ success: false, message: statusData.message || 'Posting failed.' });
+            } else if (attempts > 90) { // 90 * 3s = 4.5 min max
+              clearInterval(interval);
+              resolve({ success: false, message: 'Posting timed out. Check your Instagram account manually.' });
+            }
+          } catch {
+            // Network blip, keep polling
+          }
+        }, 3000);
+      });
+
+      setPostProgress('');
+      setResult(pollResult);
+      if (pollResult.success) onActionComplete();
+
     } catch (err) {
       setPostProgress('');
       setResult({

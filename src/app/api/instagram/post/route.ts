@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { execFile } from 'child_process'
-import path from 'path'
-import fs from 'fs'
+import { writeFile, readFile, mkdir } from 'fs/promises'
+import { join } from 'path'
 
-/* ── POST: Publish carousel to Instagram via child process ── */
+const QUEUE_DIR = join(process.cwd(), 'temp', 'ig-queue');
+
+/* ── POST: Enqueue a carousel for posting (instant return, no crash) ── */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -28,107 +29,72 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get the active Instagram account
-    const account = await db.instagramAccount.findFirst({
-      where: { isActive: true },
-    });
-
+    const account = await db.instagramAccount.findFirst({ where: { isActive: true } });
     if (!account) {
-      return NextResponse.json(
-        { error: 'No Instagram account connected. Please connect your account first.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'No Instagram account connected.' }, { status: 400 });
     }
 
-    // Verify the carousel exists
-    const carousel = await db.carousel.findUnique({
-      where: { id: carouselId },
-    });
-
+    const carousel = await db.carousel.findUnique({ where: { id: carouselId } });
     if (!carousel) {
       return NextResponse.json({ error: 'Carousel not found' }, { status: 404 });
     }
 
-    const postCaption = caption || carousel.caption || '';
+    // Ensure queue dirs exist
+    await mkdir(join(QUEUE_DIR, 'pending'), { recursive: true });
+    await mkdir(join(QUEUE_DIR, 'done'), { recursive: true });
 
-    // Write payload to temp file for child process
-    const tmpDir = path.join(process.cwd(), 'temp', 'ig-posts');
-    fs.mkdirSync(tmpDir, { recursive: true });
-
-    const payloadPath = path.join(tmpDir, `payload_${Date.now()}.json`);
-    const payload = {
+    // Write job payload to queue — daemon picks it up
+    const jobId = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const jobPayload = {
+      jobId,
       accessToken: account.accessToken,
       pageId: '1172339492635726',
       igBusinessId: account.instagramUserId,
       carouselId,
-      caption: postCaption,
+      caption: caption || carousel.caption || '',
       username: account.username,
       images,
     };
 
-    fs.writeFileSync(payloadPath, JSON.stringify(payload));
+    const pendingPath = join(QUEUE_DIR, 'pending', `${jobId}.json`);
+    await writeFile(pendingPath, JSON.stringify(jobPayload));
 
-    // Spawn the standalone posting script
-    const scriptPath = path.join(process.cwd(), 'scripts', 'ig-poster.js');
-
-    const result = await new Promise<{ success: boolean; message: string; postId?: string; url?: string }>((resolve, reject) => {
-      const child = execFile(
-        'node',
-        [scriptPath, payloadPath],
-        { timeout: 300000, maxBuffer: 10 * 1024 * 1024 },
-        (error, stdout, stderr) => {
-          // Clean up temp file regardless of outcome
-          try { fs.unlinkSync(payloadPath); } catch { /* ignore */ }
-
-          if (error) {
-            console.error('[IG Post] Child process error:', error.message);
-            if (stderr) console.error('[IG Post] stderr:', stderr.substring(0, 500));
-            reject(new Error(stderr?.substring(0, 300) || error.message));
-            return;
-          }
-
-          try {
-            const output = JSON.parse(stdout.trim());
-            resolve(output);
-          } catch {
-            console.error('[IG Post] Failed to parse child output:', stdout?.substring(0, 300));
-            reject(new Error('Failed to process posting result'));
-          }
-        }
-      );
-    });
-
-    if (!result.success) {
-      return NextResponse.json({ error: result.message }, { status: 500 });
-    }
-
-    // Update database
-    if (result.postId) {
-      await db.scheduledPost.create({
-        data: {
-          carouselId,
-          scheduledTime: new Date(),
-          status: 'posted',
-          instagramPostId: result.postId,
-        },
-      });
-
-      await db.carousel.update({
-        where: { id: carouselId },
-        data: { status: 'posted' },
-      });
-    }
+    console.log(`[IG Post] Job ${jobId} queued (${images.length} images)`);
 
     return NextResponse.json({
       success: true,
-      message: result.message,
-      postId: result.postId,
-      url: result.url,
+      jobId,
+      message: `Carousel queued for posting. Processing ${images.length} slides — this takes about 30-60 seconds.`,
     });
 
   } catch (error) {
     console.error('[IG Post] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to post carousel to Instagram';
+    const message = error instanceof Error ? error.message : 'Failed to queue carousel';
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/* ── GET: Poll job status ── */
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get('jobId');
+
+  if (!jobId) {
+    return NextResponse.json({ error: 'jobId is required' }, { status: 400 });
+  }
+
+  try {
+    const donePath = join(QUEUE_DIR, 'done', `${jobId}.json`);
+    const result = await readFile(donePath, 'utf8');
+    return NextResponse.json(JSON.parse(result));
+  } catch {
+    // No result yet — check if still pending
+    const pendingPath = join(QUEUE_DIR, 'pending', `${jobId}.json`);
+    try {
+      await readFile(pendingPath, 'utf8');
+      return NextResponse.json({ status: 'processing', message: 'Still uploading...' });
+    } catch {
+      return NextResponse.json({ status: 'not_found', error: 'Job not found' }, { status: 404 });
+    }
   }
 }
