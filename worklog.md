@@ -98,3 +98,21 @@ Stage Summary:
 - The "Unexpected token '<'" bug is permanently fixed: route.ts no longer makes external HTTP calls (it writes to queue disk), so Turbopack cannot crash
 - The daemon (ig-poster-daemon.js) must be running for Post Now button to work — start-server.sh handles this
 - All code files verified correct: route.ts, instagram-panel.tsx, page.tsx, ig-poster-daemon.js, ig-poster.js
+
+---
+Task ID: 2
+Agent: main
+Task: Fix Post Now button infinite loading - poster never ran
+
+Work Log:
+- Diagnosed: route wrote job to pending/ but no daemon was running to process it
+- Fixed route.ts: now spawns `node scripts/ig-poster.js <pendingPath> <donePath>` as a detached child process using execFile + unref()
+- Updated ig-poster.js: accepts optional 3rd arg (outputPath) to write result JSON to file instead of stdout
+- Added serverExternalPackages: ["child_process"] to next.config.ts for Turbopack compatibility
+- Tested end-to-end: spawn works, poster runs, result file written correctly
+- No daemon needed anymore - each POST request is self-contained
+
+Stage Summary:
+- The "Unexpected token '<'" and infinite loading bugs are permanently fixed
+- Route spawns its own poster child process - no external daemon dependency
+- Error results also get written to done/ so polling always terminates

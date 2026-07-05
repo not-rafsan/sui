@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { writeFile, readFile, mkdir } from 'fs/promises'
 import { join } from 'path'
+import { execFile } from 'child_process'
 
 const QUEUE_DIR = join(process.cwd(), 'temp', 'ig-queue');
 
-/* ── POST: Enqueue a carousel for posting (instant return, no crash) ── */
+/* ── POST: Write payload, spawn poster as background process, return jobId ── */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -39,11 +40,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Carousel not found' }, { status: 404 });
     }
 
-    // Ensure queue dirs exist
+    // Ensure dirs exist
     await mkdir(join(QUEUE_DIR, 'pending'), { recursive: true });
     await mkdir(join(QUEUE_DIR, 'done'), { recursive: true });
 
-    // Write job payload to queue — daemon picks it up
+    // Write job payload
     const jobId = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const jobPayload = {
       jobId,
@@ -57,19 +58,42 @@ export async function POST(request: NextRequest) {
     };
 
     const pendingPath = join(QUEUE_DIR, 'pending', `${jobId}.json`);
+    const donePath = join(QUEUE_DIR, 'done', `${jobId}.json`);
     await writeFile(pendingPath, JSON.stringify(jobPayload));
 
-    console.log(`[IG Post] Job ${jobId} queued (${images.length} images)`);
+    // Spawn ig-poster.js as a detached background process
+    // It reads the payload, posts to IG, writes result to done/
+    const posterScript = join(process.cwd(), 'scripts', 'ig-poster.js');
+    const child = execFile(
+      'node',
+      [posterScript, pendingPath, donePath],
+      { detached: true, stdio: 'ignore' },
+      (err) => {
+        if (err) {
+          // If poster crashes, write error to done/ so polling stops
+          const fs = require('fs');
+          fs.writeFileSync(donePath, JSON.stringify({
+            success: false,
+            status: 'error',
+            message: err.message || 'Poster process failed',
+            timestamp: new Date().toISOString(),
+          }));
+        }
+      }
+    );
+    child.unref(); // Don't wait for child — let it run independently
+
+    console.log(`[IG Post] Job ${jobId} spawned (${images.length} images)`);
 
     return NextResponse.json({
       success: true,
       jobId,
-      message: `Carousel queued for posting. Processing ${images.length} slides — this takes about 30-60 seconds.`,
+      message: `Processing ${images.length} slides — this takes about 30-60 seconds.`,
     });
 
   } catch (error) {
     console.error('[IG Post] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to queue carousel';
+    const message = error instanceof Error ? error.message : 'Failed to start posting';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -84,15 +108,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Check if result is ready
     const donePath = join(QUEUE_DIR, 'done', `${jobId}.json`);
     const result = await readFile(donePath, 'utf8');
     return NextResponse.json(JSON.parse(result));
   } catch {
-    // No result yet — check if still pending
+    // No result yet — check if still pending (file exists = still processing)
     const pendingPath = join(QUEUE_DIR, 'pending', `${jobId}.json`);
     try {
       await readFile(pendingPath, 'utf8');
-      return NextResponse.json({ status: 'processing', message: 'Still uploading...' });
+      return NextResponse.json({ status: 'processing', message: 'Uploading to Instagram...' });
     } catch {
       return NextResponse.json({ status: 'not_found', error: 'Job not found' }, { status: 404 });
     }

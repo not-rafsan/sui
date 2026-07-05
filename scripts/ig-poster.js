@@ -8,8 +8,11 @@ const https = require('https');
 const fs = require('fs');
 
 const payloadPath = process.argv[2];
+const outputPath = process.argv[3]; // optional: write result to file instead of stdout
 if (!payloadPath) {
-  console.log(JSON.stringify({ success: false, message: 'No payload path provided' }));
+  const result = JSON.stringify({ success: false, message: 'No payload path provided' });
+ if (outputPath) require('fs').writeFileSync(outputPath, result);
+  else console.log(result);
   process.exit(1);
 }
 
@@ -178,18 +181,26 @@ async function main() {
       { 'Content-Type': 'application/json' }
     );
 
-    console.log(JSON.stringify({
+    const result = JSON.stringify({
       success: true,
-      message: `Carousel posted successfully to @${username}!`,
+      status: 'done',
+      message: `Carousel posted to @${username}!`,
       postId: published.id,
       url: `https://www.instagram.com/p/${published.id}/`,
-    }));
+      timestamp: new Date().toISOString(),
+    });
+    if (outputPath) require('fs').writeFileSync(outputPath, result);
+    else console.log(result);
 
   } catch (err) {
-    console.log(JSON.stringify({
+    const result = JSON.stringify({
       success: false,
+      status: 'error',
       message: err.message || 'Failed to post carousel',
-    }));
+      timestamp: new Date().toISOString(),
+    });
+    if (outputPath) require('fs').writeFileSync(outputPath, result);
+    else console.log(result);
     process.exit(1);
   }
 }
