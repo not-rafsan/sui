@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Instagram, Link2, Unlink, Calendar, Send, CheckCircle2, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import { Instagram, Link2, Unlink, Calendar, Send, CheckCircle2, AlertCircle, Loader2, ExternalLink, RefreshCw } from 'lucide-react';
 import SlideRenderer, { type SlideData } from '@/components/carousel/slide-renderer';
 
 interface InstagramPanelProps {
@@ -29,6 +29,7 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
   const [formUsername, setFormUsername] = useState('');
   const [formToken, setFormToken] = useState('');
   const [formUserId, setFormUserId] = useState('');
+  const [isRegeneratingCaption, setIsRegeneratingCaption] = useState(false);
 
   // Off-screen container for rendering slides to images
   const offscreenRef = useRef<HTMLDivElement>(null);
@@ -126,6 +127,22 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
       }
     } catch { /* ignore */ }
     setIsConnecting(false);
+  };
+
+  const handleRegenerateCaption = async () => {
+    if (!selectedCarousel?.slides?.length) return;
+    setIsRegeneratingCaption(true);
+    try {
+      const res = await fetch('/api/caption/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: selectedCarousel.title, slides: selectedCarousel.slides }),
+      });
+      if (!res.ok) throw new Error('Failed to regenerate');
+      const data = await res.json();
+      if (data.caption) setScheduleCaption(data.caption);
+    } catch { /* keep current caption */ }
+    setIsRegeneratingCaption(false);
   };
 
   const handleDisconnect = async () => {
@@ -349,11 +366,24 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-white/50 text-xs">Caption</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-white/50 text-xs">Caption</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleRegenerateCaption}
+                disabled={isRegeneratingCaption || !selectedCarousel?.slides?.length}
+                className="text-white/40 hover:text-white/70 hover:bg-white/5 text-[11px] gap-1.5 h-6 px-2"
+              >
+                {isRegeneratingCaption ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Regenerate
+              </Button>
+            </div>
             <Textarea
               value={scheduleCaption || selectedCarousel?.caption || ''}
               onChange={(e) => setScheduleCaption(e.target.value)}
-              rows={3}
+              rows={4}
               className="bg-white/5 border-white/10 text-white placeholder:text-white/20 text-xs resize-none"
               placeholder="Add your caption with hashtags..."
             />
