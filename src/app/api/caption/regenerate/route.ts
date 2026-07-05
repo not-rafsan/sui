@@ -10,52 +10,73 @@ export async function POST(request: NextRequest) {
 
     const zai = await ZAI.create();
 
-    // Build a compact summary of slide content so the AI has context
-    const slideSummaries = slides.map((s: Record<string, unknown>, i: number) => {
-      if (s.type === 'cover') return `Slide ${i + 1} (Cover): ${s.title}`;
-      if (s.type === 'cta') return `Slide ${i + 1} (CTA): ${s.title}`;
-      return `Slide ${i + 1} (Ch${s.chapterNumber}): ${s.title} — ${s.subtitle}`;
-    }).join('\n');
+    // Extract content slide titles for the checklist
+    const contentSlides = slides.filter((s: Record<string, unknown>) => s.type === 'content');
+    const checklistItems = contentSlides.map((s: Record<string, unknown>) => {
+      const t = String(s.title || '').replace(/\n/g, ' ').trim();
+      return t;
+    }).join('", "');
 
     const response = await zai.chat.completions.create({
       messages: [
         {
           role: 'system',
-          content: `You are an Instagram caption expert for a 3M+ follower business page. Generate ONE viral caption.
+          content: `You are an Instagram caption expert for a 3M+ follower business page. Generate ONE caption following this EXACT 6-part format:
 
-STRUCTURE (follow exactly):
-Line 1: Hook — a single punchy sentence that creates curiosity or FOMO. No period at the end. Make someone STOP scrolling.
-Line 2: (blank)
-Line 3-5: Body — 2-3 short, punchy sentences. Each on its own line. Include at least ONE specific number (dollar amount, percentage, or timeframe). Conversational tone. Add NEW insight not in the carousel.
-Line 6: (blank)
-Line 7: Exactly 5 hashtags, space-separated. Mix 2 popular, 2 mid-tier, 1 niche. No generic tags.
+PART 1 — OPENING (1-2 sentences):
+"I just shared my [what it covers]—from [topic A] and [topic B] to [topic C] and [topic D]. If you're looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
 
-BAD: "Transform your business with AI! #AI #Business"
-GOOD: "I ignored this AI strategy for 8 months and it cost me $47K in lost revenue
+PART 2 — CHECKLIST (after blank line):
+"💡 Inside you'll learn:"
+"✅ [topic 1]"
+"✅ [topic 2]"
+...one per content slide
 
-The moment I automated my product research everything shifted
+PART 3 — SAVE CTA (after blank line):
+"Save this post so you can come back to it while [relevant activity]."
 
-Week 1: $200 profit. Month 2: $3,400. Month 5: $11K consistent
+PART 4 — ENGAGEMENT (after blank line):
+"👇 Tell me in the comments:"
+"[One specific question about the reader's challenge/opinion related to the topic]?"
 
-The tools do 90% of the work — you just need to set them up once
+PART 5 — SHARE + FOLLOW (after blank line):
+"Share this with a friend who's [trying to / interested in] [related goal], and follow for more [niche] [content types]."
 
-Save this before the algorithm buries it
+PART 6 — HASHTAGS (after blank line):
+Exactly 5 relevant hashtags, space-separated.
 
-#AIBusiness #MakeMoneyOnline #PassiveIncomeTips #AutomationBusiness #SideHustleIdeas2025"
+EXAMPLE:
+I just shared my complete AI-powered dropshipping blueprint—from product research and content creation to automation workflows and scaling strategies. If you're looking to save time, reduce manual work, and build smarter systems, this carousel is for you.
+
+💡 Inside you'll learn:
+✅ AI product research
+✅ Store setup workflow
+✅ Marketing automation
+✅ Content generation
+✅ Customer support automation
+✅ Scaling strategy
+
+Save this post so you can come back to it while building your store.
+
+👇 Tell me in the comments:
+What's the biggest challenge stopping you from starting an AI-powered business?
+
+Share this with a friend who's trying to make money online, and follow for more practical AI systems, automations, and business blueprints.
+
+#AI #Dropshipping #AIAutomation #OnlineBusiness #SideHustle
 
 Return ONLY the raw caption text. No JSON, no quotes, no explanation.`
         },
         {
           role: 'user',
-          content: `Generate a viral Instagram caption for this carousel:\n\nTitle: "${title}"\n\nSlide breakdown:\n${slideSummaries}\n\nReturn ONLY the caption text.`
+          content: `Generate a caption for this carousel:\n\nTitle: "${title}"\nContent slide topics: "${checklistItems}"\n\nUse these exact slide topics in the ✅ checklist. Make the opening line reference these topics. Write a unique engagement question. Return ONLY the caption.`
         }
       ],
-      temperature: 0.85,
-      max_tokens: 500,
+      temperature: 0.9,
+      max_tokens: 600,
     });
 
     const caption = response.choices[0]?.message?.content?.trim() || '';
-    // Strip any wrapping quotes the AI might add
     const cleaned = caption.replace(/^["']|["']$/g, '').trim();
 
     return NextResponse.json({ caption: cleaned });

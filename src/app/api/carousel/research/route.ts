@@ -26,7 +26,7 @@ YOUR RESEARCH PROCESS:
 OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks) with this exact structure:
 {
   "title": "SHORT ATTENTION-GRABBING TITLE IN ALL CAPS",
-  "caption": "VIRAL HOOK LINE that stops the scroll\\n\\n2-3 short sentences of value-packed body text that expand on the carousel topic. Use line breaks between sentences. Be specific, not generic. Mention a number, result, or consequence.\\n\\n#Hashtag1 #Hashtag2 #Hashtag3 #Hashtag4 #Hashtag5",
+  "caption": "I just shared my [what the carousel covers]—from [first topic] and [second topic] to [third topic] and [fourth topic]. [Benefit sentence about why they should care].\\n\\n💡 Inside you'll learn:\\n✅ [Topic from slide 1]\\n✅ [Topic from slide 2]\\n✅ [Topic from slide 3]\\n✅ [Topic from slide 4]\\n✅ [Topic from slide 5]\\n✅ [Topic from slide 6]\\n\\nSave this post so you can come back to it while [doing the thing].\\n\\n👇 Tell me in the comments:\\n[Engagement question related to the topic]?\\n\\nShare this with a friend who's [trying to / interested in] [related goal], and follow for more [niche] [content type].\\n\\n#Hashtag1 #Hashtag2 #Hashtag3 #Hashtag4 #Hashtag5",
   "slides": [
     {
       "type": "cover",
@@ -69,43 +69,63 @@ RULES:
 - Keep bullet points SHORT — each 5-12 words max for clean layout
 
 CAPTION RULES (CRITICAL — this determines reach):
-The caption must follow this exact 3-part structure:
+The caption must follow this EXACT 6-part structure with these exact section breaks:
 
-PART 1 — HOOK (first line, before any blank line):
-- A single punchy sentence that creates curiosity, urgency, or FOMO
-- Use patterns like: "Nobody talks about this but...", "I wasted 2 years before I discovered...", "This single shift took me from $0 to $10K/mo"
-- Must make someone STOP scrolling. No generic motivational fluff.
-- End the hook with NO period — let it hang for impact
+PART 1 — OPENING LINE (1-2 sentences):
+- Start with "I just shared my [what the carousel covers]"
+- Use em-dash (—) to list 2-4 key topics from the carousel: "—from [topic A] and [topic B] to [topic C] and [topic D]"
+- End with a short benefit sentence: "If you're looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
+- First person, conversational, warm tone
 
-PART 2 — BODY (after the hook, 2-3 lines separated by blank lines):
-- Short, punchy sentences that deliver on the hook's promise
-- Include at least ONE specific number (percentage, dollar amount, timeframe, or count)
-- Write in a conversational, direct tone — like texting a friend who asks "how'd you do it?"
-- Each sentence should be 1 line (not wrapped paragraphs). Use line breaks between them.
-- Do NOT repeat what's already on the carousel slides — add NEW insight or context
+PART 2 — CHECKLIST (after a blank line):
+- Start with "💡 Inside you'll learn:" (lightbulb emoji + exactly this text)
+- Then list each content slide topic with ✅ emoji, one per line
+- Each line = 2-5 words, just the key topic from that slide (e.g. "✅ AI product research", "✅ Store setup workflow")
+- Match the actual slide titles/chapters — do NOT make up topics that aren't in the carousel
 
-PART 3 — HASHTAGS (last line, after a blank line):
+PART 3 — SAVE CTA (after a blank line):
+- "Save this post so you can come back to it while [doing the relevant activity]."
+- The activity should match the carousel topic (e.g. "while building your store", "while setting up your funnel")
+
+PART 4 — ENGAGEMENT QUESTION (after a blank line):
+- "👇 Tell me in the comments:" (pointing down emoji + exactly this text)
+- Then 1 question on the next line that asks about the reader's specific challenge, experience, or opinion related to the topic
+- The question must end with "?" and be something people actually want to answer
+
+PART 5 — SHARE + FOLLOW (after a blank line):
+- "Share this with a friend who's [trying to / interested in / working on] [related goal], and follow for more [niche] [content types]."
+- Be specific about the niche and content types (not generic "great content")
+
+PART 6 — HASHTAGS (after a blank line):
 - Exactly 5 hashtags, space-separated
-- Mix: 2 mega-popular (1M+ posts), 2 mid-tier (100K-1M), 1 niche/specific
 - No generic tags like #love #instagood #photo
-- Tags must be relevant to the specific topic, not the same 5 every time
+- Tags must be relevant to the specific topic
 
-BAD EXAMPLE: "Transform your e-commerce game with AI-powered automation. From product discovery to profit maximization - complete system revealed. #AI #Dropshipping #Ecommerce #Automation #PassiveIncome"
-GOOD EXAMPLE: "Everyone's building the wrong kind of online business in 2025
+PERFECT EXAMPLE:
+"I just shared my complete AI-powered dropshipping blueprint—from product research and content creation to automation workflows and scaling strategies. If you're looking to save time, reduce manual work, and build smarter systems, this carousel is for you.
 
-I discovered this AI dropshipping system 6 months ago and it completely changed everything
+💡 Inside you'll learn:
+✅ AI product research
+✅ Store setup workflow
+✅ Marketing automation
+✅ Content generation
+✅ Customer support automation
+✅ Scaling strategy
 
-The first week I made $340 profit. By month 3 I hit $4,200. The secret? Letting AI handle every single repetitive task
+Save this post so you can come back to it while building your store.
 
-Save this before you spend another dollar on courses
+👇 Tell me in the comments:
+What's the biggest challenge stopping you from starting an AI-powered business?
 
-#Dropshipping #AIBusiness #MakeMoneyOnline #EcommerceTips #SideHustle2025"`;
+Share this with a friend who's trying to make money online, and follow for more practical AI systems, automations, and business blueprints.
+
+#AI #Dropshipping #AIAutomation #OnlineBusiness #SideHustle"`;
 
     const userPrompt = `Create a high-quality Instagram carousel about: "${topic}"
 
 Generate ${chapterCount} content chapters that form a progressive journey to earning money. Make the content specific, actionable, and worthy of a 3M+ follower business page. Include real tools, realistic earnings, and step-by-step progression.
 
-Pay EXTRA attention to the caption — the hook line must be scroll-stopping and the body must include specific numbers. The hashtags must be unique to this topic, not generic.
+For the caption: follow the 6-part format EXACTLY as described. The ✅ checklist items MUST match the actual slide topics you generate. The engagement question must be specific to the topic.
 
 Return ONLY the JSON object, no other text.`;
 
