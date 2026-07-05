@@ -39,7 +39,7 @@ export default function Home() {
     caption: string;
     slides: SlideData[];
   } | null>(null);
-  const [selectedForSchedule, setSelectedForSchedule] = useState<{ id: string; title: string; caption: string | null } | null>(null);
+  const [selectedForSchedule, setSelectedForSchedule] = useState<{ id: string; title: string; caption: string | null; slides?: SlideData[] } | null>(null);
 
   const refresh = useCallback(() => setRefreshTrigger((n) => n + 1), []);
 
@@ -98,18 +98,19 @@ export default function Home() {
   };
 
   const handleSchedule = (carousel: SelectedCarousel) => {
-    setSelectedForSchedule({ id: carousel.id, title: carousel.title, caption: carousel.caption });
+    let slides: SlideData[] = [];
+    try { slides = JSON.parse(carousel.slides); } catch { /* ignore */ }
+    setSelectedForSchedule({ id: carousel.id, title: carousel.title, caption: carousel.caption, slides });
     setTab('instagram');
     setView('tabs');
   };
 
   const handlePost = (carousel: SelectedCarousel) => {
-    if (!confirm(`Post "${carousel.title}" to Instagram now? (Simulation)`)) return;
-    fetch('/api/instagram/post', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carouselId: carousel.id }),
-    }).then(() => refresh());
+    let slides: SlideData[] = [];
+    try { slides = JSON.parse(carousel.slides); } catch { /* ignore */ }
+    setSelectedForSchedule({ id: carousel.id, title: carousel.title, caption: carousel.caption, slides });
+    setTab('instagram');
+    setView('tabs');
   };
 
   // Editor view — smooth transition with fade-in

@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Instagram, Link2, Unlink, Calendar, Send, CheckCircle2, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import SlideRenderer, { type SlideData } from '@/components/carousel/slide-renderer';
 
 interface InstagramPanelProps {
-  selectedCarousel: { id: string; title: string; caption: string | null } | null;
+  selectedCarousel: { id: string; title: string; caption: string | null; slides?: SlideData[] } | null;
   onActionComplete: () => void;
 }
 
@@ -19,15 +20,18 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
   const [isConnecting, setIsConnecting] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
+  const [postProgress, setPostProgress] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleCaption, setScheduleCaption] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
 
-  // Form state
   const [formUsername, setFormUsername] = useState('');
   const [formToken, setFormToken] = useState('');
   const [formUserId, setFormUserId] = useState('');
+
+  // Off-screen container for rendering slides to images
+  const offscreenRef = useRef<HTMLDivElement>(null);
 
   const checkConnection = async () => {
     try {
@@ -40,10 +44,66 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
     } catch { /* ignore */ }
   };
 
-  React.useEffect(() => {
-    const controller = new AbortController();
-    checkConnection();
-    return () => controller.abort();
+  useEffect(() => { checkConnection(); }, []);
+
+  // Generate PNG images from slides using html-to-image
+  const generateSlideImages = useCallback(async (slides: SlideData[]): Promise<string[]> => {
+    const { toPng } = await import('html-to-image');
+
+    // Create off-screen container
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.style.zIndex = '-1';
+    document.body.appendChild(container);
+
+    const images: string[] = [];
+
+    try {
+      for (let i = 0; i < slides.length; i++) {
+        setPostProgress(`Generating image ${i + 1} of ${slides.length}...`);
+
+        // Render slide into container
+        const wrapper = document.createElement('div');
+        container.appendChild(wrapper);
+
+        // Use React to render the slide component into the wrapper
+        const ReactDOM = await import('react-dom/client');
+        const root = ReactDOM.createRoot(wrapper);
+        await new Promise<void>((resolve) => {
+          root.render(
+            React.createElement(SlideRenderer, {
+              slide: slides[i],
+              width: 1080,
+              height: 1350,
+            })
+          );
+          // Wait for render + fonts
+          setTimeout(resolve, 300);
+        });
+
+        // Capture as PNG
+        const dataUrl = await toPng(wrapper.firstElementChild as HTMLElement || wrapper, {
+          width: 1080,
+          height: 1350,
+          pixelRatio: 1,
+          cacheBust: true,
+          style: {
+            transform: 'none',
+            transformOrigin: 'top left',
+          },
+        });
+
+        images.push(dataUrl);
+        root.unmount();
+        container.removeChild(wrapper);
+      }
+    } finally {
+      document.body.removeChild(container);
+    }
+
+    return images;
   }, []);
 
   const handleConnect = async () => {
@@ -54,14 +114,14 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: formUsername,
+          username: formUsername.replace('@', ''),
           accessToken: formToken,
           instagramUserId: formUserId,
         }),
       });
       if (res.ok) {
         setConnected(true);
-        setUsername(formUsername);
+        setUsername(formUsername.replace('@', ''));
         setConnectDialogOpen(false);
       }
     } catch { /* ignore */ }
@@ -101,27 +161,62 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
 
   const handlePostNow = async () => {
     if (!selectedCarousel) return;
-    if (!confirm(`Post "${selectedCarousel.title}" to Instagram now? (Simulation mode)`)) return;
+
+    const slides = selectedCarousel.slides;
+    if (!slides || slides.length === 0) {
+      setResult({
+        success: false,
+        message: 'No slides found. The carousel data could not be loaded. Try opening the carousel in the editor first, then come back.',
+      });
+      return;
+    }
+
+    if (!confirm(`Post "${selectedCarousel.title}" to @${username} now? This will upload ${slides.length} slides.`)) return;
+
     setIsPosting(true);
+    setPostProgress('Preparing...');
     setResult(null);
+
     try {
+      // Step 1: Generate PNG images from slides
+      setPostProgress('Generating slide images...');
+      const images = await generateSlideImages(slides);
+      setPostProgress('Uploading to Instagram...');
+
+      // Step 2: Send to API for posting
       const res = await fetch('/api/instagram/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           carouselId: selectedCarousel.id,
-          caption: scheduleCaption,
+          caption: scheduleCaption || selectedCarousel.caption || '',
+          images,
         }),
       });
+
       const data = await res.json();
+      setPostProgress('');
+
+      if (res.ok) {
+        setResult({
+          success: true,
+          message: data.message + (data.url ? `\n\nView: ${data.url}` : ''),
+        });
+        onActionComplete();
+      } else {
+        setResult({
+          success: false,
+          message: data.error || 'Failed to post to Instagram.',
+        });
+      }
+    } catch (err) {
+      setPostProgress('');
       setResult({
-        success: res.ok,
-        message: res.ok ? data.message : data.error,
+        success: false,
+        message: err instanceof Error ? err.message : 'An unexpected error occurred.',
       });
-      if (res.ok) onActionComplete();
-    } catch {
-      setResult({ success: false, message: 'Network error' });
     }
+
     setIsPosting(false);
   };
 
@@ -130,7 +225,7 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
       <div className="text-center space-y-3">
         <h2 className="text-2xl font-bold text-white tracking-tight">Instagram Integration</h2>
         <p className="text-white/40 text-sm max-w-md mx-auto leading-relaxed">
-          Connect your Instagram account to schedule and auto-post carousels directly.
+          Connect your Instagram account to post carousels directly.
         </p>
       </div>
 
@@ -188,7 +283,7 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
                     <Input
                       value={formToken}
                       onChange={(e) => setFormToken(e.target.value)}
-                      placeholder="IGQVJ..."
+                      placeholder="EAA..."
                       type="password"
                       className="bg-white/5 border-white/10 text-white placeholder:text-white/20"
                     />
@@ -202,9 +297,6 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
                       className="bg-white/5 border-white/10 text-white placeholder:text-white/20"
                     />
                   </div>
-                  <p className="text-[10px] text-white/25 leading-relaxed">
-                    Get these from Meta for Developers → Instagram Graph API. Your token needs instagram_basic and instagram_content_publish permissions.
-                  </p>
                   <Button
                     onClick={handleConnect}
                     disabled={!formUsername || !formToken || !formUserId || isConnecting}
@@ -218,14 +310,6 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
             </Dialog>
           )}
         </div>
-
-        {/* Info box */}
-        <div className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
-          <p className="text-[10px] text-white/25 leading-relaxed">
-            <strong className="text-white/40">How it works:</strong> Connect via Instagram Graph API with a Business/Creator account.
-            Schedule carousels for auto-posting, or post immediately. Carousels are uploaded as multi-image carousel posts with your caption and hashtags.
-          </p>
-        </div>
       </div>
 
       {/* Schedule / Post Section */}
@@ -233,7 +317,10 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 space-y-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-white/30" />
-            <p className="text-sm font-medium text-white/80">Schedule: {selectedCarousel.title}</p>
+            <p className="text-sm font-medium text-white/80">Post: {selectedCarousel.title}</p>
+            {selectedCarousel.slides && (
+              <span className="text-[10px] text-white/25 ml-auto">{selectedCarousel.slides.length} slides</span>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -277,8 +364,15 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
             </Button>
           </div>
 
+          {postProgress && (
+            <div className="flex items-center gap-2 text-xs text-white/40">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              {postProgress}
+            </div>
+          )}
+
           {result && (
-            <div className={`flex items-start gap-2 p-3 rounded-lg text-xs ${
+            <div className={`flex items-start gap-2 p-3 rounded-lg text-xs whitespace-pre-line ${
               result.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
             }`}>
               {result.success ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
@@ -290,7 +384,7 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
 
       {!selectedCarousel && connected && (
         <div className="text-center py-8">
-          <p className="text-white/20 text-xs">Select a carousel from the dashboard to schedule or post it</p>
+          <p className="text-white/20 text-xs">Select a carousel from the dashboard to post it</p>
         </div>
       )}
     </div>
