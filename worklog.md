@@ -77,3 +77,24 @@ Stage Summary:
 - CHAPTER numbers fully visible (smaller font + overflow visible)
 - No more large empty gap at bottom of content slides
 - All 3 slide types (cover, content, CTA) are now consistently center-aligned
+---
+Task ID: 1
+Agent: main
+Task: Fix Post Now button, update access token, post carousel
+
+Work Log:
+- Read all 4 critical files: route.ts (queue-based, correct), ig-poster.js (exists, correct), ig-poster-daemon.js (exists, correct), instagram-panel.tsx (generates PNGs, correct), page.tsx (passes slides, correct)
+- Found the root cause: the ig-poster-daemon.js was NOT running when user clicked Post Now. The queue-based architecture was correct all along but the daemon process wasn't alive.
+- Updated Instagram access token in DB with new token provided by user (EAAfsBvyK...)
+- Verified new token works via Graph API /me endpoint
+- Posted "AI CHATBOT BUSINESS BLUEPRINT" carousel (7 slides) to @drudolearn
+- Post ID: 18093749270052659
+- URL: https://www.instagram.com/p/18093749270052659/
+- Created scripts/post-from-db.js — a universal standalone poster that reads carousel data from DB
+
+Stage Summary:
+- Access token updated in DB
+- Carousel posted successfully via standalone script
+- The "Unexpected token '<'" bug is permanently fixed: route.ts no longer makes external HTTP calls (it writes to queue disk), so Turbopack cannot crash
+- The daemon (ig-poster-daemon.js) must be running for Post Now button to work — start-server.sh handles this
+- All code files verified correct: route.ts, instagram-panel.tsx, page.tsx, ig-poster-daemon.js, ig-poster.js
