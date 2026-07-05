@@ -26,7 +26,7 @@ YOUR RESEARCH PROCESS:
 OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks) with this exact structure:
 {
   "title": "SHORT ATTENTION-GRABBING TITLE IN ALL CAPS",
-  "caption": "Engaging Instagram caption with relevant hashtags #AI #Business #Entrepreneurship #SideHustle",
+  "caption": "VIRAL HOOK LINE that stops the scroll\\n\\n2-3 short sentences of value-packed body text that expand on the carousel topic. Use line breaks between sentences. Be specific, not generic. Mention a number, result, or consequence.\\n\\n#Hashtag1 #Hashtag2 #Hashtag3 #Hashtag4 #Hashtag5",
   "slides": [
     {
       "type": "cover",
@@ -66,11 +66,46 @@ RULES:
 - All text should be concise and punchy (Instagram carousel style for a 3M+ follower page)
 - Use real, specific numbers and tools where possible
 - earningPotential should be realistic and progressive
-- Keep bullet points SHORT — each 5-12 words max for clean layout`;
+- Keep bullet points SHORT — each 5-12 words max for clean layout
+
+CAPTION RULES (CRITICAL — this determines reach):
+The caption must follow this exact 3-part structure:
+
+PART 1 — HOOK (first line, before any blank line):
+- A single punchy sentence that creates curiosity, urgency, or FOMO
+- Use patterns like: "Nobody talks about this but...", "I wasted 2 years before I discovered...", "This single shift took me from $0 to $10K/mo"
+- Must make someone STOP scrolling. No generic motivational fluff.
+- End the hook with NO period — let it hang for impact
+
+PART 2 — BODY (after the hook, 2-3 lines separated by blank lines):
+- Short, punchy sentences that deliver on the hook's promise
+- Include at least ONE specific number (percentage, dollar amount, timeframe, or count)
+- Write in a conversational, direct tone — like texting a friend who asks "how'd you do it?"
+- Each sentence should be 1 line (not wrapped paragraphs). Use line breaks between them.
+- Do NOT repeat what's already on the carousel slides — add NEW insight or context
+
+PART 3 — HASHTAGS (last line, after a blank line):
+- Exactly 5 hashtags, space-separated
+- Mix: 2 mega-popular (1M+ posts), 2 mid-tier (100K-1M), 1 niche/specific
+- No generic tags like #love #instagood #photo
+- Tags must be relevant to the specific topic, not the same 5 every time
+
+BAD EXAMPLE: "Transform your e-commerce game with AI-powered automation. From product discovery to profit maximization - complete system revealed. #AI #Dropshipping #Ecommerce #Automation #PassiveIncome"
+GOOD EXAMPLE: "Everyone's building the wrong kind of online business in 2025
+
+I discovered this AI dropshipping system 6 months ago and it completely changed everything
+
+The first week I made $340 profit. By month 3 I hit $4,200. The secret? Letting AI handle every single repetitive task
+
+Save this before you spend another dollar on courses
+
+#Dropshipping #AIBusiness #MakeMoneyOnline #EcommerceTips #SideHustle2025"`;
 
     const userPrompt = `Create a high-quality Instagram carousel about: "${topic}"
 
 Generate ${chapterCount} content chapters that form a progressive journey to earning money. Make the content specific, actionable, and worthy of a 3M+ follower business page. Include real tools, realistic earnings, and step-by-step progression.
+
+Pay EXTRA attention to the caption — the hook line must be scroll-stopping and the body must include specific numbers. The hashtags must be unique to this topic, not generic.
 
 Return ONLY the JSON object, no other text.`;
 
