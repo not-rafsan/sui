@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { carouselId, scheduledTime, caption } = body
+    const { carouselId, scheduledTime, caption, images, music } = body
 
     if (!carouselId || typeof carouselId !== 'string') {
       return NextResponse.json(
@@ -37,6 +37,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!images || !Array.isArray(images) || images.length < 2) {
+      return NextResponse.json(
+        { error: 'At least 2 slide images are required. Generate them before scheduling.' },
+        { status: 400 }
+      )
+    }
+
+    if (images.length > 10) {
+      return NextResponse.json(
+        { error: 'Instagram carousel allows maximum 10 slides.' },
+        { status: 400 }
+      )
+    }
+
     // Verify the carousel exists
     const carousel = await db.carousel.findUnique({
       where: { id: carouselId },
@@ -49,12 +63,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create the scheduled post
+    // Create the scheduled post with pre-rendered images stored in DB
     const scheduledPost = await db.scheduledPost.create({
       data: {
         carouselId,
         scheduledTime: scheduledDate,
         status: 'scheduled',
+        imageData: JSON.stringify(images), // Store base64 PNG array
+        caption: caption || carousel.caption || null,
+        music: music ? JSON.stringify(music) : null,
       },
       include: {
         carousel: true,
@@ -67,11 +84,13 @@ export async function POST(request: NextRequest) {
       data: { status: 'scheduled' },
     })
 
+    console.log(`[Schedule] Post ${scheduledPost.id} scheduled for ${scheduledDate.toISOString()} (${images.length} images stored)`)
+
     return NextResponse.json(
       {
         success: true,
-        message: `Carousel scheduled for ${scheduledDate.toISOString()}`,
-        scheduledPost,
+        message: `Carousel scheduled for ${scheduledDate.toLocaleString()}`,
+        scheduledPostId: scheduledPost.id,
       },
       { status: 201 }
     )

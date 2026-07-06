@@ -25,8 +25,11 @@ model ScheduledPost {
   carouselId      String
   scheduledTime   DateTime?
   instagramPostId String?
-  status          String   @default("pending") // pending, scheduled, posted, failed
+  status          String   @default("pending") // pending, scheduled, processing, posted, failed
   errorMessage    String?
+  imageData       String?  // JSON array of base64 PNG images (pre-rendered at schedule time)
+  music           String?  // JSON object with music_asset_id, music_start_time_in_ms
+  caption         String?  // caption override stored at schedule time
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

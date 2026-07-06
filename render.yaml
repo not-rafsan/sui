@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: drudo-ig-poster
+    runtime: docker
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: CRON_SECRET
+        generateValue: true
+    healthCheckPath: /api/instagram/schedule-executor
