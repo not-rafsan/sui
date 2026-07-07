@@ -5,8 +5,8 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json ./
+RUN npm install
 
 # Build the application
 FROM base AS builder
@@ -37,14 +37,14 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/static ./.next/static
 
-# Copy scripts (ig-poster.js needed for local dev / Post Now flow)
-COPY --from=builder /app/scripts ./scripts
-
-# Copy Prisma schema for runtime
+# Copy Prisma schema + generated client for runtime
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
-# Create temp dirs for queue
-RUN mkdir -p /app/temp/ig-queue/pending /app/temp/ig-queue/done
+# Create data dir for SQLite + temp dirs
+RUN mkdir -p /app/data /app/temp/ig-queue/pending /app/temp/ig-queue/done && \
+    chown -R nextjs:nodejs /app/data /app/temp
 
 USER nextjs
 
