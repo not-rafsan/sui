@@ -1,10 +1,9 @@
 FROM node:20-alpine AS base
 
-# Install dependencies only when needed
+# Install dependencies
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
-
 COPY package.json ./
 RUN npm install
 
@@ -17,7 +16,12 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build Next.js (use webpack, not turbopack — turbopack breaks standalone output)
+# Create SQLite DB with tables (so it's ready at runtime)
+RUN mkdir -p /app/data
+ENV DATABASE_URL="file:/app/data/custom.db"
+RUN npx prisma db push --skip-generate --accept-data-loss
+
+# Build Next.js (use webpack, not turbopack)
 RUN npx next build --webpack
 
 # Production image
@@ -33,24 +37,20 @@ RUN adduser --system --uid 1001 nextjs
 # Copy standalone output
 COPY --from=builder /app/.next/standalone ./
 
-# Copy static files (public + .next/static)
+# Copy static files
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/static ./.next/static
 
-# Copy Prisma schema + generated client for runtime
+# Copy Prisma schema + generated client
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
-# Copy Prisma CLI for db push at startup
-COPY --from=builder /app/node_modules/.bin/prisma /app/node_modules/.bin/prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+# Copy the pre-created SQLite DB with all tables
+COPY --from=builder /app/data/custom.db /app/data/custom.db
 
-# Copy entrypoint script
-COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
-
-# Create data dir for SQLite + temp dirs
-RUN mkdir -p /app/data /app/temp/ig-queue/pending /app/temp/ig-queue/done && \
+# Create writable dirs and fix permissions
+RUN mkdir -p /app/temp/ig-queue/pending /app/temp/ig-queue/done && \
     chown -R nextjs:nodejs /app/data /app/temp
 
 USER nextjs
@@ -60,4 +60,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["/app/docker-entrypoint.sh"]
+CMD ["node", "server.js"]
