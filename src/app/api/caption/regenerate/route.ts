@@ -2,36 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const IS_RENDER = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
 
-async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 600, temperature = 0.9) {
+async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 600, temperature = 0.9): Promise<string> {
   if (IS_RENDER) {
-    const token = process.env.ZAI_TOKEN || '';
-    if (!token) throw new Error('ZAI_TOKEN env var not set on Render');
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) throw new Error('GEMINI_API_KEY env var not set. Add it in Render Environment settings.');
 
-    const baseUrl = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1';
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model: 'default',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const result = await model.generateContent({
+      contents: [
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
+      ],
+      generationConfig: {
         temperature,
-        max_tokens: maxTokens,
-      }),
+        maxOutputTokens: maxTokens,
+      },
     });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`AI API error ${res.status}: ${errText}`);
-    }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || '';
+    return result.response.text() || '';
   } else {
     const ZAI = (await import('z-ai-web-dev-sdk')).default;
     const zai = await ZAI.create();
@@ -54,7 +44,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Title and slides are required' }, { status: 400 });
     }
 
-    // Extract content slide titles for the checklist
     const contentSlides = slides.filter((s: Record<string, unknown>) => s.type === 'content');
     const checklistItems = contentSlides.map((s: Record<string, unknown>) => {
       const t = String(s.title || '').replace(/\n/g, ' ').trim();
@@ -64,50 +53,28 @@ export async function POST(request: NextRequest) {
     const systemPrompt = `You are an Instagram caption expert for a 3M+ follower business page. Generate ONE caption following this EXACT 6-part format:
 
 PART 1 — OPENING (1-2 sentences):
-"I just shared my [what it covers]—from [topic A] and [topic B] to [topic C] and [topic D]. If you're looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
+"I just shared my [what it covers]—from [topic A] and [topic B] to [topic C] and [topic D]. If you are looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
 
 PART 2 — CHECKLIST (after blank line):
-"💡 Inside you'll learn:"
-"✅ [topic 1]"
-"✅ [topic 2]"
-...one per content slide
+"Inside you will learn:" (with lightbulb emoji)
+Then list each content slide topic with checkmark emoji, one per line (2-5 words each)
 
 PART 3 — SAVE CTA (after blank line):
 "Save this post so you can come back to it while [relevant activity]."
 
 PART 4 — ENGAGEMENT (after blank line):
-"👇 Tell me in the comments:"
-"[One specific question about the reader's challenge/opinion related to the topic]?"
+"Tell me in the comments:" (with pointing down emoji)
+Then 1 specific question about the reader challenge related to the topic ending with "?"
 
 PART 5 — SHARE + FOLLOW (after blank line):
-"Share this with a friend who's [trying to / interested in] [related goal], and follow for more [niche] [content types]."
+"Share this with a friend who is [trying to / interested in] [related goal], and follow for more [niche] [content types]."
 
 PART 6 — HASHTAGS (after blank line):
 Exactly 5 relevant hashtags, space-separated.
 
-EXAMPLE:
-I just shared my complete AI-powered dropshipping blueprint—from product research and content creation to automation workflows and scaling strategies. If you're looking to save time, reduce manual work, and build smarter systems, this carousel is for you.
-
-💡 Inside you'll learn:
-✅ AI product research
-✅ Store setup workflow
-✅ Marketing automation
-✅ Content generation
-✅ Customer support automation
-✅ Scaling strategy
-
-Save this post so you can come back to it while building your store.
-
-👇 Tell me in the comments:
-What's the biggest challenge stopping you from starting an AI-powered business?
-
-Share this with a friend who's trying to make money online, and follow for more practical AI systems, automations, and business blueprints.
-
-#AI #Dropshipping #AIAutomation #OnlineBusiness #SideHustle
-
 Return ONLY the raw caption text. No JSON, no quotes, no explanation.`;
 
-    const userPrompt = `Generate a caption for this carousel:\n\nTitle: "${title}"\nContent slide topics: "${checklistItems}"\n\nUse these exact slide topics in the ✅ checklist. Make the opening line reference these topics. Write a unique engagement question. Return ONLY the caption.`;
+    const userPrompt = `Generate a caption for this carousel:\n\nTitle: "${title}"\nContent slide topics: "${checklistItems}"\n\nUse these exact slide topics in the checklist. Make the opening line reference these topics. Write a unique engagement question. Return ONLY the caption.`;
 
     const caption = await callAI(systemPrompt, userPrompt, 600, 0.9);
     const cleaned = (caption || '').replace(/^["']|["']$/g, '').trim();

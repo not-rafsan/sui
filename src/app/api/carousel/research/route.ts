@@ -3,44 +3,33 @@ import { NextRequest, NextResponse } from 'next/server';
 const IS_RENDER = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
 
 /**
- * AI call helper — works both locally (via z-ai-web-dev-sdk) and on Render (via direct fetch).
- * On Render, the internal-api.z.ai is NOT reachable, so we use the token to call
- * a public-facing OpenAI-compatible endpoint that proxies to the same backend.
+ * AI call helper — dual mode:
+ *   Local:  z-ai-web-dev-sdk (internal Z.ai network)
+ *   Render: Google Gemini (free, public API)
  */
-async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 4000, temperature = 0.7) {
+async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 4000, temperature = 0.7): Promise<string> {
   if (IS_RENDER) {
-    // On Render: call internal-api.z.ai directly using token from env vars
-    // This endpoint IS accessible from the public internet with the JWT token
-    const token = process.env.ZAI_TOKEN || '';
-    if (!token) throw new Error('ZAI_TOKEN env var not set on Render');
+    // Render: use Google Gemini (free tier, works from anywhere)
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) throw new Error('GEMINI_API_KEY env var not set. Add it in Render Environment settings.');
 
-    const baseUrl = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1';
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model: 'default',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const result = await model.generateContent({
+      contents: [
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
+      ],
+      generationConfig: {
         temperature,
-        max_tokens: maxTokens,
-      }),
+        maxOutputTokens: maxTokens,
+      },
     });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`AI API error ${res.status}: ${errText}`);
-    }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || '';
+    return result.response.text() || '';
   } else {
-    // Locally: use z-ai-web-dev-sdk as before
+    // Local: use z-ai-web-dev-sdk
     const ZAI = (await import('z-ai-web-dev-sdk')).default;
     const zai = await ZAI.create();
     const response = await zai.chat.completions.create({
@@ -69,7 +58,7 @@ YOUR RESEARCH PROCESS:
 OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks) with this exact structure:
 {
   "title": "SHORT ATTENTION-GRABBING TITLE IN ALL CAPS",
-  "caption": "I just shared my [what the carousel covers]—from [first topic] and [second topic] to [third topic] and [fourth topic]. [Benefit sentence about why they should care].\\n\\n💡 Inside you'll learn:\\n✅ [Topic from slide 1]\\n✅ [Topic from slide 2]\\n✅ [Topic from slide 3]\\n✅ [Topic from slide 4]\\n✅ [Topic from slide 5]\\n✅ [Topic from slide 6]\\n\\nSave this post so you can come back to it while [doing the thing].\\n\\n👇 Tell me in the comments:\\n[Engagement question related to the topic]?\\n\\nShare this with a friend who's [trying to / interested in] [related goal], and follow for more [niche] [content type].\\n\\n#Hashtag1 #Hashtag2 #Hashtag3 #Hashtag4 #Hashtag5",
+  "caption": "...",
   "slides": [
     {
       "type": "cover",
@@ -84,17 +73,7 @@ OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks) with this e
       "subtitle": "Brief description",
       "bulletPoints": ["Point 1 with specific detail", "Point 2 with actionable step", "Point 3 with tool or resource", "Point 4 with expected outcome"],
       "earningPotential": "$X,XXX - $XX,XXX/mo"
-    },
-    {
-      "type": "content",
-      "chapterNumber": 2,
-      ...
     }
-  ],
-  "slides": [
-    // First slide is always type "cover"
-    // Middle slides are type "content" (4-6 of them)
-    // Last slide is always type "cta" with: title, subtitle, accentText
   ]
 }
 
@@ -111,58 +90,31 @@ RULES:
 - earningPotential should be realistic and progressive
 - Keep bullet points SHORT — each 5-12 words max for clean layout
 
-CAPTION RULES (CRITICAL — this determines reach):
-The caption must follow this EXACT 6-part structure with these exact section breaks:
+CAPTION RULES (CRITICAL):
+The caption must follow this EXACT 6-part structure:
 
 PART 1 — OPENING LINE (1-2 sentences):
 - Start with "I just shared my [what the carousel covers]"
-- Use em-dash (—) to list 2-4 key topics from the carousel: "—from [topic A] and [topic B] to [topic C] and [topic D]"
-- End with a short benefit sentence: "If you're looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
-- First person, conversational, warm tone
+- Use em-dash to list 2-4 key topics: "from [topic A] and [topic B] to [topic C] and [topic D]"
+- End with: "If you are looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
 
 PART 2 — CHECKLIST (after a blank line):
-- Start with "💡 Inside you'll learn:" (lightbulb emoji + exactly this text)
-- Then list each content slide topic with ✅ emoji, one per line
-- Each line = 2-5 words, just the key topic from that slide (e.g. "✅ AI product research", "✅ Store setup workflow")
-- Match the actual slide titles/chapters — do NOT make up topics that aren't in the carousel
+- "Inside you will learn:" (with lightbulb emoji)
+- Then list each content slide topic with checkmark emoji, one per line
+- Each line = 2-5 words, just the key topic from that slide
 
 PART 3 — SAVE CTA (after a blank line):
-- "Save this post so you can come back to it while [doing the relevant activity]."
-- The activity should match the carousel topic (e.g. "while building your store", "while setting up your funnel")
+- "Save this post so you can come back to it while [relevant activity]."
 
 PART 4 — ENGAGEMENT QUESTION (after a blank line):
-- "👇 Tell me in the comments:" (pointing down emoji + exactly this text)
-- Then 1 question on the next line that asks about the reader's specific challenge, experience, or opinion related to the topic
-- The question must end with "?" and be something people actually want to answer
+- "Tell me in the comments:" (with pointing down emoji)
+- Then 1 question about the reader specific challenge related to the topic, ending with "?"
 
 PART 5 — SHARE + FOLLOW (after a blank line):
-- "Share this with a friend who's [trying to / interested in / working on] [related goal], and follow for more [niche] [content types]."
-- Be specific about the niche and content types (not generic "great content")
+- "Share this with a friend who is [trying to / interested in] [related goal], and follow for more [niche] [content types]."
 
 PART 6 — HASHTAGS (after a blank line):
-- Exactly 5 hashtags, space-separated
-- No generic tags like #love #instagood #photo
-- Tags must be relevant to the specific topic
-
-PERFECT EXAMPLE:
-"I just shared my complete AI-powered dropshipping blueprint—from product research and content creation to automation workflows and scaling strategies. If you're looking to save time, reduce manual work, and build smarter systems, this carousel is for you.
-
-💡 Inside you'll learn:
-✅ AI product research
-✅ Store setup workflow
-✅ Marketing automation
-✅ Content generation
-✅ Customer support automation
-✅ Scaling strategy
-
-Save this post so you can come back to it while building your store.
-
-👇 Tell me in the comments:
-What's the biggest challenge stopping you from starting an AI-powered business?
-
-Share this with a friend who's trying to make money online, and follow for more practical AI systems, automations, and business blueprints.
-
-#AI #Dropshipping #AIAutomation #OnlineBusiness #SideHustle"`;
+- Exactly 5 hashtags, space-separated, relevant to the specific topic`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -180,7 +132,7 @@ export async function POST(request: NextRequest) {
 
 Generate ${chapterCount} content chapters that form a progressive journey to earning money. Make the content specific, actionable, and worthy of a 3M+ follower business page. Include real tools, realistic earnings, and step-by-step progression.
 
-For the caption: follow the 6-part format EXACTLY as described. The ✅ checklist items MUST match the actual slide topics you generate. The engagement question must be specific to the topic.
+For the caption: follow the 6-part format EXACTLY as described. The checklist items MUST match the actual slide topics you generate. The engagement question must be specific to the topic.
 
 Return ONLY the JSON object, no other text.`;
 
@@ -190,23 +142,23 @@ Return ONLY the JSON object, no other text.`;
       return NextResponse.json({ error: 'AI returned empty response. Please try again.' }, { status: 500 });
     }
 
-    // Robust JSON extraction — handle various LLM output formats
+    // Robust JSON extraction
     let jsonStr = content.trim();
 
-    // Remove markdown code fences (```json ... ``` or ``` ... ```)
+    // Remove markdown code fences
     const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
     if (fenceMatch) {
       jsonStr = fenceMatch[1].trim();
     }
 
-    // Try to extract JSON object if there's surrounding text
+    // Extract JSON object if there is surrounding text
     const firstBrace = jsonStr.indexOf('{');
     const lastBrace = jsonStr.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
     }
 
-    // Fix common JSON issues: trailing commas
+    // Fix trailing commas
     jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
 
     let carouselData: Record<string, unknown>;
@@ -224,28 +176,23 @@ Return ONLY the JSON object, no other text.`;
       return NextResponse.json({ error: 'Invalid carousel data structure' }, { status: 500 });
     }
 
-    // Normalize slide data - ensure bulletPoints is always an array
+    // Normalize slide data
     carouselData.slides = carouselData.slides.map((slide: Record<string, unknown>, idx: number) => {
-      // Ensure type field
       if (idx === 0 && slide.type !== 'cta') slide.type = 'cover';
       else if (idx === carouselData.slides.length - 1 && slide.type !== 'cover') slide.type = 'cta';
       else if (!slide.type) slide.type = 'content';
 
-      // Ensure bulletPoints is an array
       if (slide.type === 'content') {
         if (!Array.isArray(slide.bulletPoints)) {
           slide.bulletPoints = slide.bulletPoints
             ? String(slide.bulletPoints).split('\n').filter(Boolean).slice(0, 5)
             : ['Key insight about this step', 'Actionable strategy to implement', 'Tool or resource to use'];
         }
-        // Ensure chapterNumber
         if (!slide.chapterNumber) slide.chapterNumber = idx;
-        // Ensure title
         if (!slide.title) slide.title = 'CHAPTER ' + slide.chapterNumber;
         if (!slide.subtitle) slide.subtitle = '';
         if (!slide.earningPotential) slide.earningPotential = '';
       }
-      // Ensure cover/cta have title
       if (slide.type === 'cover' || slide.type === 'cta') {
         if (!slide.title) slide.title = slide.type === 'cover' ? 'YOUR TITLE' : 'SAVE TO START';
         if (!slide.subtitle) slide.subtitle = '';
