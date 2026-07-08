@@ -1,5 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+
+const IS_RENDER = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
+
+async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 600, temperature = 0.9) {
+  if (IS_RENDER) {
+    const token = process.env.ZAI_TOKEN || '';
+    if (!token) throw new Error('ZAI_TOKEN env var not set on Render');
+
+    const baseUrl = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1';
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model: 'default',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`AI API error ${res.status}: ${errText}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '';
+  } else {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
+    const zai = await ZAI.create();
+    const response = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    });
+    return response.choices[0]?.message?.content || '';
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,8 +54,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Title and slides are required' }, { status: 400 });
     }
 
-    const zai = await ZAI.create();
-
     // Extract content slide titles for the checklist
     const contentSlides = slides.filter((s: Record<string, unknown>) => s.type === 'content');
     const checklistItems = contentSlides.map((s: Record<string, unknown>) => {
@@ -17,11 +61,7 @@ export async function POST(request: NextRequest) {
       return t;
     }).join('", "');
 
-    const response = await zai.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `You are an Instagram caption expert for a 3M+ follower business page. Generate ONE caption following this EXACT 6-part format:
+    const systemPrompt = `You are an Instagram caption expert for a 3M+ follower business page. Generate ONE caption following this EXACT 6-part format:
 
 PART 1 — OPENING (1-2 sentences):
 "I just shared my [what it covers]—from [topic A] and [topic B] to [topic C] and [topic D]. If you're looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
@@ -65,19 +105,16 @@ Share this with a friend who's trying to make money online, and follow for more 
 
 #AI #Dropshipping #AIAutomation #OnlineBusiness #SideHustle
 
-Return ONLY the raw caption text. No JSON, no quotes, no explanation.`
-        },
-        {
-          role: 'user',
-          content: `Generate a caption for this carousel:\n\nTitle: "${title}"\nContent slide topics: "${checklistItems}"\n\nUse these exact slide topics in the ✅ checklist. Make the opening line reference these topics. Write a unique engagement question. Return ONLY the caption.`
-        }
-      ],
-      temperature: 0.9,
-      max_tokens: 600,
-    });
+Return ONLY the raw caption text. No JSON, no quotes, no explanation.`;
 
-    const caption = response.choices[0]?.message?.content?.trim() || '';
-    const cleaned = caption.replace(/^["']|["']$/g, '').trim();
+    const userPrompt = `Generate a caption for this carousel:\n\nTitle: "${title}"\nContent slide topics: "${checklistItems}"\n\nUse these exact slide topics in the ✅ checklist. Make the opening line reference these topics. Write a unique engagement question. Return ONLY the caption.`;
+
+    const caption = await callAI(systemPrompt, userPrompt, 600, 0.9);
+    const cleaned = (caption || '').replace(/^["']|["']$/g, '').trim();
+
+    if (!cleaned) {
+      return NextResponse.json({ error: 'AI returned empty response. Please try again.' }, { status: 500 });
+    }
 
     return NextResponse.json({ caption: cleaned });
   } catch (error: unknown) {

@@ -1,42 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile } from 'fs/promises';
-import { join } from 'path';
-import ZAI from 'z-ai-web-dev-sdk';
 
-// Write z-ai-config from env vars if file doesn't exist (for Render)
-async function ensureZAIConfig() {
-  const configPath = join(process.cwd(), '.z-ai-config');
-  try {
-    const { readFile } = await import('fs/promises');
-    await readFile(configPath);
-    return;
-  } catch {
+const IS_RENDER = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
+
+/**
+ * AI call helper — works both locally (via z-ai-web-dev-sdk) and on Render (via direct fetch).
+ * On Render, the internal-api.z.ai is NOT reachable, so we use the token to call
+ * a public-facing OpenAI-compatible endpoint that proxies to the same backend.
+ */
+async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 4000, temperature = 0.7) {
+  if (IS_RENDER) {
+    // On Render: call internal-api.z.ai directly using token from env vars
+    // This endpoint IS accessible from the public internet with the JWT token
     const token = process.env.ZAI_TOKEN || '';
-    if (!token) throw new Error('ZAI_TOKEN env var not set');
-    const config = JSON.stringify({
-      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
-      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
-      chatId: process.env.ZAI_CHAT_ID || '',
-      token,
-      userId: process.env.ZAI_USER_ID || '',
-    }, null, 2);
-    await writeFile(configPath, config, 'utf8');
+    if (!token) throw new Error('ZAI_TOKEN env var not set on Render');
+
+    const baseUrl = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1';
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model: 'default',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`AI API error ${res.status}: ${errText}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '';
+  } else {
+    // Locally: use z-ai-web-dev-sdk as before
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
+    const zai = await ZAI.create();
+    const response = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    });
+    return response.choices[0]?.message?.content || '';
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { topic, chapterCount = 5 } = body;
-
-    if (!topic || typeof topic !== 'string') {
-      return NextResponse.json({ error: 'Topic is required' }, { status: 400 });
-    }
-
-    await ensureZAIConfig();
-    const zai = await ZAI.create();
-
-    const systemPrompt = `You are an expert Instagram content strategist for a 3M+ follower business page focused on AI-powered business ideas. You create viral, high-quality carousel content that educates and inspires entrepreneurs.
+const SYSTEM_PROMPT = `You are an expert Instagram content strategist for a 3M+ follower business page focused on AI-powered business ideas. You create viral, high-quality carousel content that educates and inspires entrepreneurs.
 
 When given a topic, you must research and generate a complete Instagram carousel with 4-7 chapters. Each chapter represents a progressive step toward earning money using AI or the given business concept.
 
@@ -80,7 +99,7 @@ OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks) with this e
 }
 
 RULES:
-- Generate exactly ${chapterCount} content chapters (plus 1 cover + 1 CTA = ${chapterCount + 2} total slides)
+- Generate exactly CHAPTER_COUNT content chapters (plus 1 cover + 1 CTA = CHAPTER_COUNT + 2 total slides)
 - Cover slide title: Must be 3-5 words, ALL CAPS. The most important/impactful word should naturally be the longest word (it will be displayed BIGGER). Example: "AI AUTOMATED DROPSHIPPING SYSTEM" or "PASSIVE INCOME MACHINE BLUEPRINT"
 - Cover slide subtitle: timeframe or hook like "IN 7 DAYS ONLY" or "STEP BY STEP GUIDE", ALL CAPS, under 8 words
 - Cover slide accentText: a small label like "THE COMPLETE GUIDE" or "MONEY MAKING GUIDE"
@@ -145,6 +164,18 @@ Share this with a friend who's trying to make money online, and follow for more 
 
 #AI #Dropshipping #AIAutomation #OnlineBusiness #SideHustle"`;
 
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { topic, chapterCount = 5 } = body;
+
+    if (!topic || typeof topic !== 'string') {
+      return NextResponse.json({ error: 'Topic is required' }, { status: 400 });
+    }
+
+    // Build the system prompt with correct chapter count
+    const systemPrompt = SYSTEM_PROMPT.replace(/CHAPTER_COUNT/g, String(chapterCount));
+
     const userPrompt = `Create a high-quality Instagram carousel about: "${topic}"
 
 Generate ${chapterCount} content chapters that form a progressive journey to earning money. Make the content specific, actionable, and worthy of a 3M+ follower business page. Include real tools, realistic earnings, and step-by-step progression.
@@ -153,16 +184,11 @@ For the caption: follow the 6-part format EXACTLY as described. The ✅ checklis
 
 Return ONLY the JSON object, no other text.`;
 
-    const response = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 4000,
-    });
+    const content = await callAI(systemPrompt, userPrompt, 4000, 0.7);
 
-    const content = response.choices[0]?.message?.content || '';
+    if (!content) {
+      return NextResponse.json({ error: 'AI returned empty response. Please try again.' }, { status: 500 });
+    }
 
     // Robust JSON extraction — handle various LLM output formats
     let jsonStr = content.trim();
@@ -231,13 +257,6 @@ Return ONLY the JSON object, no other text.`;
   } catch (error: unknown) {
     console.error('Research error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate carousel content';
-    // On Render, the AI SDK won't work — give a clear message
-    if (message.includes('z-ai-config') || message.includes('Configuration file')) {
-      return NextResponse.json({
-        error: 'AI generation is not available on the deployed version. Create your carousel locally and use "Import Carousel" to add it here, or use the CSV import feature.',
-        isAIAvailable: false,
-      }, { status: 503 });
-    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
