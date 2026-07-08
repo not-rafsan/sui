@@ -1,5 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { writeFile } from 'fs/promises';
+import { join } from 'path';
 import ZAI from 'z-ai-web-dev-sdk';
+
+// Write z-ai-config from env vars if file doesn't exist (for Render)
+async function ensureZAIConfig() {
+  const configPath = join(process.cwd(), '.z-ai-config');
+  try {
+    const { readFile } = await import('fs/promises');
+    await readFile(configPath);
+    return;
+  } catch {
+    const token = process.env.ZAI_TOKEN || '';
+    if (!token) throw new Error('ZAI_TOKEN env var not set');
+    const config = JSON.stringify({
+      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
+      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+      chatId: process.env.ZAI_CHAT_ID || '',
+      token,
+      userId: process.env.ZAI_USER_ID || '',
+    }, null, 2);
+    await writeFile(configPath, config, 'utf8');
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,6 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Topic is required' }, { status: 400 });
     }
 
+    await ensureZAIConfig();
     const zai = await ZAI.create();
 
     const systemPrompt = `You are an expert Instagram content strategist for a 3M+ follower business page focused on AI-powered business ideas. You create viral, high-quality carousel content that educates and inspires entrepreneurs.
