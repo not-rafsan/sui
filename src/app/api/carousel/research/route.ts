@@ -207,6 +207,13 @@ Return ONLY the JSON object, no other text.`;
   } catch (error: unknown) {
     console.error('Research error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate carousel content';
+    // On Render, the AI SDK won't work — give a clear message
+    if (message.includes('z-ai-config') || message.includes('Configuration file')) {
+      return NextResponse.json({
+        error: 'AI generation is not available on the deployed version. Create your carousel locally and use "Import Carousel" to add it here, or use the CSV import feature.',
+        isAIAvailable: false,
+      }, { status: 503 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trash2, Edit3, Calendar, Upload, Eye } from 'lucide-react';
+import { Trash2, Edit3, Calendar, Upload, Eye, Download } from 'lucide-react';
 import SlideRenderer from './slide-renderer';
 import type { SlideData } from './slide-renderer';
 
@@ -45,6 +45,23 @@ export default function CarouselList({ onEdit, onSchedule, onPost, refreshTrigge
   };
 
   useEffect(() => { fetchCarousels(); }, [refreshTrigger]);
+
+  const handleExport = async (id: string, title: string) => {
+    try {
+      const res = await fetch('/api/carousel/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carouselId: id }),
+      });
+      if (!res.ok) { alert('Export failed'); return; }
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${title.replace(/[^a-zA-Z0-9]/g, '_')}.json`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch { alert('Export failed'); }
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this carousel? This cannot be undone.')) return;
@@ -158,6 +175,13 @@ export default function CarouselList({ onEdit, onSchedule, onPost, refreshTrigge
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[10px] text-white/20 font-mono">{date}</span>
                 <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleExport(carousel.id, carousel.title)}
+                    className="p-1.5 rounded-md text-white/20 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
+                    title="Export JSON"
+                  >
+                    <Download className="w-3 h-3" />
+                  </button>
                   <button
                     onClick={() => onPost(carousel)}
                     className="p-1.5 rounded-md text-white/20 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, FileDown, Instagram, LayoutGrid, Sparkles } from 'lucide-react';
+import { Plus, FileDown, Instagram, LayoutGrid, Sparkles, Upload } from 'lucide-react';
 import CarouselCreator from '@/components/carousel/carousel-creator';
 import CarouselEditor from '@/components/carousel/carousel-editor';
 import CarouselList from '@/components/carousel/carousel-list';
@@ -105,6 +105,29 @@ export default function Home() {
     setView('tabs');
   };
 
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data.title || !data.slides || !Array.isArray(data.slides)) {
+        alert('Invalid carousel file. It must have title and slides.');
+        return;
+      }
+      const res = await fetch('/api/carousels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: data.title, topic: data.topic || data.title, slides: data.slides, caption: data.caption || null }),
+      });
+      if (res.ok) { refresh(); setTab('dashboard'); }
+      else { const err = await res.json(); alert('Import failed: ' + (err.error || 'Unknown error')); }
+    } catch { alert('Invalid JSON file.'); }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handlePost = (carousel: SelectedCarousel) => {
     let slides: SlideData[] = [];
     try { slides = JSON.parse(carousel.slides); } catch { /* ignore */ }
@@ -199,6 +222,10 @@ export default function Home() {
                 <h2 className="text-lg font-semibold text-white tracking-tight">My Carousels</h2>
                 <p className="text-xs text-white/30 mt-0.5">Manage, edit, schedule, and export your carousel content</p>
               </div>
+              <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+              <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} className="text-white/40 hover:text-white/70 hover:bg-white/5 text-xs gap-1.5 h-8">
+                <Upload className="w-3.5 h-3.5" /> Import JSON
+              </Button>
             </div>
             <CarouselList
               onEdit={handleEditCarousel}
