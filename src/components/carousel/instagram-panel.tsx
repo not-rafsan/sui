@@ -583,7 +583,7 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
               {isScheduling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
               Schedule Post
             </Button>
-            <Button onClick={handlePostNow} disabled={isPosting} variant="outline" className="flex-1 border-white/10 text-white/70 hover:bg-white/5 text-xs gap-1.5 h-9">
+            <Button onClick={handlePostNow} disabled={isPosting} className="flex-1 bg-black text-white border border-white/20 hover:bg-white/10 text-xs gap-1.5 h-9">
               {isPosting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               Post Now
             </Button>
