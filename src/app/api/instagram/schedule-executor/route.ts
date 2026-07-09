@@ -195,12 +195,23 @@ async function postToInstagram(payload: {
   };
 }
 
-// ── GET: Called by external cron (cron-job.org). Returns 202 immediately, processes in background. ──
+// ── GET: Used by both keep-alive cron AND executor cron (cron-job.org sends GET).
+//   Accepts secret via query param ?secret=xxx or header x-cron-secret. ──
 
-export async function GET() {
-  // Check for an auth header to prevent random hits from triggering posts
-  // The cron-job.org URL will include a secret query param
-  // This endpoint just returns 200 as a health/keep-alive ping
+export async function GET(request: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET || 'drudo-schedule-executor-2024';
+  const querySecret = request.nextUrl.searchParams.get('secret');
+  const headerSecret = request.headers.get('x-cron-secret');
+  const isAuthorized = querySecret === cronSecret || headerSecret === cronSecret;
+
+  if (isAuthorized) {
+    // Authorized executor cron — process due posts in background
+    processDuePosts().catch((err) => {
+      console.error('[ScheduleExecutor] Fatal error in processDuePosts:', err);
+    });
+  }
+
+  // Always return 200 (also serves as keep-alive health ping)
   return NextResponse.json({ status: 'alive', timestamp: new Date().toISOString() });
 }
 
@@ -213,8 +224,6 @@ export async function POST(request: NextRequest) {
   }
 
   // Respond immediately — the cron service should not wait for posting to finish
-  // The actual posting runs in a fire-and-forget promise
-
   processDuePosts().catch((err) => {
     console.error('[ScheduleExecutor] Fatal error in processDuePosts:', err);
   });
