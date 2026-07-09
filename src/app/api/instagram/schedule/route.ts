@@ -84,13 +84,15 @@ export async function POST(request: NextRequest) {
       data: { status: 'scheduled' },
     })
 
-    console.log(`[Schedule] Post ${scheduledPost.id} scheduled for ${scheduledDate.toISOString()} (${images.length} images stored)`)
+    const localTime = scheduledDate.toLocaleString('en-US', { timeZone: 'Asia/Dhaka', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+    console.log(`[Schedule] Post ${scheduledPost.id} scheduled for ${scheduledDate.toISOString()} (Dhaka: ${localTime}, ${images.length} images stored)`)
 
     return NextResponse.json(
       {
         success: true,
-        message: `Carousel scheduled for ${scheduledDate.toLocaleString()}`,
+        message: `Carousel scheduled for ${localTime} (Dhaka time)`,
         scheduledPostId: scheduledPost.id,
+        scheduledTime: scheduledDate.toISOString(),
       },
       { status: 201 }
     )
