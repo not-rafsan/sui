@@ -1,48 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const IS_RENDER = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
-
-/**
- * AI call helper — dual mode:
- *   Local:  z-ai-web-dev-sdk (internal Z.ai network)
- *   Render: Google Gemini (free, public API)
- */
-async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 4000, temperature = 0.7): Promise<string> {
-  if (IS_RENDER) {
-    // Render: use Google Gemini (free tier, works from anywhere)
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    if (!apiKey) throw new Error('GEMINI_API_KEY env var not set. Add it in Render Environment settings.');
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const result = await model.generateContent({
-      contents: [
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
-      ],
-      generationConfig: {
-        temperature,
-        maxOutputTokens: maxTokens,
-      },
-    });
-
-    return result.response.text() || '';
-  } else {
-    // Local: use z-ai-web-dev-sdk
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-    const response = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-    });
-    return response.choices[0]?.message?.content || '';
-  }
-}
+import { callAI } from '@/lib/ai';
 
 const SYSTEM_PROMPT = `You are an expert Instagram content strategist for a 3M+ follower business page focused on AI-powered business ideas. You create viral, high-quality carousel content that educates and inspires entrepreneurs.
 
@@ -84,36 +41,36 @@ RULES:
 - Cover slide accentText: a small label like "THE COMPLETE GUIDE" or "MONEY MAKING GUIDE"
 - Content slides: progressive journey from getting started to scaling earnings
 - Each content slide has 3-5 concise bullet points (5-12 words each)
-- CTA slide: "SAVE TO START" as title, "FOLLOW FOR MORE" as subtitle, "@YOURHANDLE" as accentText
+- CTA slide: "SAVE TO START" as title, "FOLLOW FOR MORE" as subtitle, "@drudolearn" as accentText
 - All text should be concise and punchy (Instagram carousel style for a 3M+ follower page)
 - Use real, specific numbers and tools where possible
 - earningPotential should be realistic and progressive
-- Keep bullet points SHORT — each 5-12 words max for clean layout
+- Keep bullet points SHORT - each 5-12 words max for clean layout
 
 CAPTION RULES (CRITICAL):
 The caption must follow this EXACT 6-part structure:
 
-PART 1 — OPENING LINE (1-2 sentences):
+PART 1 - OPENING LINE (1-2 sentences):
 - Start with "I just shared my [what the carousel covers]"
 - Use em-dash to list 2-4 key topics: "from [topic A] and [topic B] to [topic C] and [topic D]"
 - End with: "If you are looking to [benefit 1], [benefit 2], and [benefit 3], this carousel is for you."
 
-PART 2 — CHECKLIST (after a blank line):
-- "Inside you will learn:" (with lightbulb emoji)
+PART 2 - CHECKLIST (after a blank line):
+- Start with "Inside you will learn:" (with lightbulb emoji)
 - Then list each content slide topic with checkmark emoji, one per line
 - Each line = 2-5 words, just the key topic from that slide
 
-PART 3 — SAVE CTA (after a blank line):
+PART 3 - SAVE CTA (after a blank line):
 - "Save this post so you can come back to it while [relevant activity]."
 
-PART 4 — ENGAGEMENT QUESTION (after a blank line):
+PART 4 - ENGAGEMENT QUESTION (after a blank line):
 - "Tell me in the comments:" (with pointing down emoji)
 - Then 1 question about the reader specific challenge related to the topic, ending with "?"
 
-PART 5 — SHARE + FOLLOW (after a blank line):
+PART 5 - SHARE + FOLLOW (after a blank line):
 - "Share this with a friend who is [trying to / interested in] [related goal], and follow for more [niche] [content types]."
 
-PART 6 — HASHTAGS (after a blank line):
+PART 6 - HASHTAGS (after a blank line):
 - Exactly 5 hashtags, space-separated, relevant to the specific topic`;
 
 export async function POST(request: NextRequest) {
@@ -125,7 +82,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Topic is required' }, { status: 400 });
     }
 
-    // Build the system prompt with correct chapter count
     const systemPrompt = SYSTEM_PROMPT.replace(/CHAPTER_COUNT/g, String(chapterCount));
 
     const userPrompt = `Create a high-quality Instagram carousel about: "${topic}"
@@ -136,7 +92,13 @@ For the caption: follow the 6-part format EXACTLY as described. The checklist it
 
 Return ONLY the JSON object, no other text.`;
 
-    const content = await callAI(systemPrompt, userPrompt, 4000, 0.7);
+    const content = await callAI(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { maxTokens: 4000, temperature: 0.7, jsonMode: false }
+    );
 
     if (!content) {
       return NextResponse.json({ error: 'AI returned empty response. Please try again.' }, { status: 500 });
@@ -151,7 +113,7 @@ Return ONLY the JSON object, no other text.`;
       jsonStr = fenceMatch[1].trim();
     }
 
-    // Extract JSON object if there is surrounding text
+    // Extract JSON object
     const firstBrace = jsonStr.indexOf('{');
     const lastBrace = jsonStr.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -171,7 +133,6 @@ Return ONLY the JSON object, no other text.`;
       return NextResponse.json({ error: 'AI returned invalid data. Please try again.' }, { status: 500 });
     }
 
-    // Validate the structure
     if (!carouselData.slides || !Array.isArray(carouselData.slides)) {
       return NextResponse.json({ error: 'Invalid carousel data structure' }, { status: 500 });
     }
