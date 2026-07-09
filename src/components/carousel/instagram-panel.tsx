@@ -229,7 +229,8 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           carouselId: selectedCarousel.id,
-          scheduledTime: new Date(scheduleTime).toISOString(),
+          // Force interpret as Dhaka time (UTC+6) to avoid browser timezone ambiguity
+          scheduledTime: new Date(scheduleTime + '+06:00').toISOString(),
           caption: scheduleCaption || selectedCarousel.caption || '',
           images,
           music: musicInfo,
@@ -237,7 +238,19 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
       });
       const data = await res.json();
       setPostProgress('');
-      setResult({ success: res.ok, message: res.ok ? data.message : data.error });
+      if (res.ok && scheduleTime) {
+        // Show the exact time the user picked, formatted nicely
+        const [datePart, timePart] = scheduleTime.split('T');
+        const [h, m] = timePart.split(':');
+        const hr = parseInt(h);
+        const ampm = hr >= 12 ? 'PM' : 'AM';
+        const hr12 = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+        const dateObj = new Date(datePart + 'T00:00:00+06:00');
+        const month = dateObj.toLocaleString('en-US', { timeZone: 'Asia/Dhaka', month: 'short', day: 'numeric' });
+        setResult({ success: true, message: `Scheduled for ${month} at ${hr12}:${m} ${ampm} (Dhaka time)` });
+      } else {
+        setResult({ success: res.ok, message: res.ok ? data.message : data.error });
+      }
       if (res.ok) onActionComplete();
     } catch {
       setPostProgress('');
