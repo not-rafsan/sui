@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, ensureInstagramConnection } from '@/lib/db';
 
 export async function GET() {
   try {
+    // Auto-reconnect if DB was wiped (Render deploys reset SQLite)
+    await ensureInstagramConnection();
+
     const account = await db.instagramAccount.findFirst({
       where: { isActive: true },
     });
