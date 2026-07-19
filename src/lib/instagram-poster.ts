@@ -5,53 +5,26 @@ import https from 'https';
 
 const API_VERSION = 'v21.0';
 const API_BASE = `https://graph.facebook.com/${API_VERSION}`;
-const API_HOST = 'graph.facebook.com';
-
-// Resolve graph.facebook.com to IPv4 once at module load
-let FB_IPv4: string | null = null;
-async function resolveFB() {
-  try {
-    const dns = await import('dns');
-    const { promisify } = await import('util');
-    const lookup = promisify(dns.default.lookup);
-    const result = await lookup(API_HOST, { family: 4 });
-    FB_IPv4 = result.address;
-    console.log(`[IG] Resolved ${API_HOST} -> ${FB_IPv4} (IPv4)`);
-  } catch (e: any) {
-    console.log(`[IG] IPv4 DNS lookup failed, will use hostname: ${e.message}`);
-  }
-}
-resolveFB();
-
-function getRequestOptions(urlObj: URL, method: string, headers: Record<string, string> = {}): any {
-  const opts: any = {
-    hostname: FB_IPv4 || urlObj.hostname,
-    port: 443,
-    path: urlObj.pathname + urlObj.search,
-    method,
-    headers: FB_IPv4 ? { ...headers, Host: API_HOST } : headers,
-    timeout: 30000,
-  };
-  if (FB_IPv4) opts.servername = API_HOST; // TLS SNI
-  return opts;
-}
 
 function httpPost(url: string, body: Buffer | string, headers: Record<string, string> = {}): Promise<any> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
-    const req = https.request(getRequestOptions(urlObj, 'POST', headers), (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
-      res.on('end', () => {
-        const data = Buffer.concat(chunks).toString('utf8');
-        try {
-          const json = JSON.parse(data);
-          if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
-          else resolve(json);
-        } catch { reject(new Error(`Non-JSON response (${res.statusCode}): ${data.substring(0, 200)}`)); }
-      });
-    });
-    req.on('timeout', () => { req.destroy(new Error('Request timed out (30s)')); });
+    const req = https.request(
+      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, method: 'POST', headers, timeout: 45000 },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
+          try {
+            const json = JSON.parse(data);
+            if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
+            else resolve(json);
+          } catch { reject(new Error(`Non-JSON response (${res.statusCode}): ${data.substring(0, 200)}`)); }
+        });
+      }
+    );
+    req.on('timeout', () => { req.destroy(new Error('Request timed out (45s)')); });
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -60,8 +33,7 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
 
 function httpGet(url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const urlObj = new URL(url);
-    const req = https.get(getRequestOptions(urlObj, 'GET'), (res) => {
+    const req = https.get(url, { timeout: 45000 }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => {
@@ -73,7 +45,7 @@ function httpGet(url: string): Promise<any> {
         } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
       });
     });
-    req.setTimeout(30000, () => { req.destroy(new Error('Request timed out (30s)')); });
+    req.setTimeout(45000, () => { req.destroy(new Error('Request timed out (45s)')); });
     req.on('error', reject);
   });
 }
