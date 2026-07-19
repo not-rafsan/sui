@@ -10,7 +10,7 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
     const req = https.request(
-      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, method: 'POST', headers },
+      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, method: 'POST', headers, timeout: 30000 },
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -24,6 +24,7 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
         });
       }
     );
+    req.on('timeout', () => { req.destroy(new Error('Request timed out (30s)')); });
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -32,7 +33,7 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
 
 function httpGet(url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    const req = https.get(url, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => {
@@ -43,22 +44,31 @@ function httpGet(url: string): Promise<any> {
           else resolve(json);
         } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
       });
-    }).on('error', reject);
+    });
+    req.setTimeout(30000, () => { req.destroy(new Error('Request timed out (30s)')); });
+    req.on('error', reject);
   });
 }
 
-// Wrapper with rate-limit retry (error code 4 = app limit, 80004 = user limit)
+// Wrapper with retry for rate limits AND network errors
 async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
       const msg = err?.message || '';
-      const isRateLimit = msg.includes('API [4]') || msg.includes('API [80004]') || msg.includes('rate') || msg.includes('throttl');
-      if (!isRateLimit || attempt === 2) throw err;
-      // Exponential backoff: 30s, 60s
-      const wait = 30000 * Math.pow(2, attempt);
-      console.log(`[IG] Rate limited on ${label}, retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
+      const isRetryable = 
+        msg.includes('API [4]') ||           // app rate limit
+        msg.includes('API [80004]') ||       // user rate limit  
+        msg.includes('timed out') ||          // network timeout
+        msg.includes('ECONNRESET') ||         // connection reset
+        msg.includes('ECONNREFUSED') ||       // connection refused
+        msg.includes('Fatal') ||              // FB fatal (often transient)
+        msg.includes('socket hang up');       // socket closed
+      if (!isRetryable || attempt === 2) throw err;
+      // Exponential backoff: 10s, 20s
+      const wait = 10000 * Math.pow(2, attempt);
+      console.log(`[IG] Retryable error on ${label}: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
       await new Promise(r => setTimeout(r, wait));
     }
   }
