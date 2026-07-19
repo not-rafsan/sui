@@ -60,7 +60,6 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
       const isRetryable = 
         msg.includes('API [4]') ||           // app rate limit
         msg.includes('API [80004]') ||       // user rate limit  
-        msg.includes('API [9007]') ||         // media not ready yet
         msg.includes('API [-1]') ||           // FB fatal/transient
         msg.includes('timed out') ||          // network timeout
         msg.includes('ECONNRESET') ||         // connection reset
@@ -71,6 +70,46 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
       // Exponential backoff: 10s, 20s
       const wait = 10000 * Math.pow(2, attempt);
       console.log(`[IG] Retryable error on ${label}: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+}
+
+// Dedicated retry for carousel container creation (9007 = media not ready yet)
+async function carouselContainerWithRetry(
+  igBusinessId: string, 
+  pageToken: string, 
+  containerIds: string[], 
+  caption: string
+): Promise<any> {
+  const payload = JSON.stringify({ media_type: 'CAROUSEL', children: containerIds, caption });
+  
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const result = await httpPost(
+        `${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, 
+        payload, 
+        { 'Content-Type': 'application/json' }
+      );
+      return result;
+    } catch (err: any) {
+      const msg = err?.message || '';
+      // 9007 = child media not ready; also retry on rate limits and network errors
+      const isRetryable =
+        msg.includes('API [9007]') ||
+        msg.includes('API [4]') ||
+        msg.includes('API [80004]') ||
+        msg.includes('API [-1]') ||
+        msg.includes('Fatal') ||
+        msg.includes('timed out') ||
+        msg.includes('ECONNRESET') ||
+        msg.includes('socket hang up');
+      
+      if (!isRetryable || attempt === 5) throw err;
+      
+      // Progressive backoff: 15s, 20s, 25s, 30s, 35s
+      const wait = 15000 + (attempt * 5000);
+      console.log(`[IG] Carousel container retry ${attempt + 1}/6: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s...`);
       await new Promise(r => setTimeout(r, wait));
     }
   }
@@ -91,14 +130,12 @@ function buildMultipart(fields: Record<string, string>, fileFieldName: string, f
 /**
  * Post a carousel to Instagram.
  * 
- * Call count for N slides:
- *   Old: 2 + 2N + N + 1 + 12 + 1 = 4N + 16  (e.g. 7 slides = 44 calls)
- *   New: 1 + 2N + N + 1 + 6  + 1 = 3N + 9   (e.g. 7 slides = 30 calls)
+ * Strategy for avoiding API [9007] (media not available):
+ *   1. Create all individual media containers
+ *   2. Wait 15 seconds for them to process (no API calls)
+ *   3. Attempt carousel creation — if 9007, retry with progressive backoff
  * 
- * Key savings:
- *   - Removed /me validation call (-1)
- *   - Reduced status polling from 12 to 6 (-6)
- *   - Added rate-limit auto-retry with backoff
+ * This avoids N*10 extra API calls from per-container status polling.
  */
 export async function postCarouselToInstagram(payload: {
   accessToken: string;
@@ -113,7 +150,6 @@ export async function postCarouselToInstagram(payload: {
   const { accessToken, pageId, igBusinessId, caption, username, images, music } = payload;
 
   // Step 1: Get page token if not already a page token
-  // Page tokens are longer and start with the same prefix but we detect by trying directly
   let pageToken = accessToken;
   try {
     const test = await apiWithRetry(() =>
@@ -122,7 +158,6 @@ export async function postCarouselToInstagram(payload: {
     );
     if (!test.id) throw new Error('not a page token');
   } catch {
-    // Not a page token — exchange it
     const pageData = await apiWithRetry(() =>
       httpGet(`${API_BASE}/${pageId}?fields=access_token,instagram_business_account{id,username}&access_token=${accessToken}`),
       'get-page-token'
@@ -153,7 +188,7 @@ export async function postCarouselToInstagram(payload: {
     if (i < images.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
 
-  // Step 3: Create IG media containers (N calls, +N retries worst case with music)
+  // Step 3: Create IG media containers (N calls)
   const containerIds: string[] = [];
   let musicSkipped = false;
   for (let i = 0; i < cdnUrls.length; i++) {
@@ -179,34 +214,17 @@ export async function postCarouselToInstagram(payload: {
     if (i < cdnUrls.length - 1) await new Promise(r => setTimeout(r, 1000));
   }
 
-  // Step 3.5: Wait for ALL individual containers to be FINISHED before grouping
-  console.log(`[IG] Waiting for ${containerIds.length} individual containers to finish processing...`);
-  for (let i = 0; i < containerIds.length; i++) {
-    let childReady = false;
-    for (let poll = 0; poll < 10; poll++) {
-      try {
-        const childStatus = await httpGet(`${API_BASE}/${containerIds[i]}?fields=status_code&access_token=${pageToken}`);
-        if (childStatus.status_code === 'FINISHED') { childReady = true; break; }
-        if (childStatus.status_code === 'ERROR') throw new Error(`Child container ${i} (${containerIds[i]}) processing failed.`);
-        console.log(`[IG] Container ${i}: status=${childStatus.status_code}, waiting 5s (poll ${poll + 1}/10)...`);
-      } catch (err: any) {
-        if (err.message.includes('processing failed')) throw err;
-        console.log(`[IG] Container ${i} status check error: ${err.message?.substring(0, 80)}. Retrying in 5s...`);
-      }
-      await new Promise(r => setTimeout(r, 5000));
-    }
-    if (!childReady) throw new Error(`Child container ${i} (${containerIds[i]}) did not finish processing in time.`);
-    console.log(`[IG] Container ${i}/${containerIds.length - 1} ready.`);
-  }
+  // Step 3.5: Let containers process — fixed 15s delay (no API calls needed)
+  console.log(`[IG] ${containerIds.length} containers created. Waiting 15s for processing before grouping...`);
+  await new Promise(r => setTimeout(r, 15000));
 
-  // Step 4: Create carousel container (1 call)
-  const carouselContainer = await apiWithRetry(() =>
-    httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, JSON.stringify({ media_type: 'CAROUSEL', children: containerIds, caption }), { 'Content-Type': 'application/json' }),
-    'carousel-container'
-  );
+  // Step 4: Create carousel container with 9007-specific retry (up to 6 attempts, 15-35s backoff)
+  console.log(`[IG] Creating carousel container with ${containerIds.length} children...`);
+  const carouselContainer = await carouselContainerWithRetry(igBusinessId, pageToken, containerIds, caption);
+  console.log(`[IG] Carousel container created: ${carouselContainer.id}`);
 
-  // Step 5: Wait for carousel container processing
-  console.log(`[IG] Waiting for carousel container ${carouselContainer.id} to finish processing...`);
+  // Step 5: Wait for carousel container processing (up to 10 polls)
+  console.log(`[IG] Waiting for carousel container to finish processing...`);
   let isReady = false;
   for (let attempt = 0; attempt < 10; attempt++) {
     const status = await httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`);
