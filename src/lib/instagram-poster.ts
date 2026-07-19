@@ -60,6 +60,8 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
       const isRetryable = 
         msg.includes('API [4]') ||           // app rate limit
         msg.includes('API [80004]') ||       // user rate limit  
+        msg.includes('API [9007]') ||         // media not ready yet
+        msg.includes('API [-1]') ||           // FB fatal/transient
         msg.includes('timed out') ||          // network timeout
         msg.includes('ECONNRESET') ||         // connection reset
         msg.includes('ECONNREFUSED') ||       // connection refused
@@ -177,22 +179,41 @@ export async function postCarouselToInstagram(payload: {
     if (i < cdnUrls.length - 1) await new Promise(r => setTimeout(r, 1000));
   }
 
+  // Step 3.5: Wait for ALL individual containers to be FINISHED before grouping
+  console.log(`[IG] Waiting for ${containerIds.length} individual containers to finish processing...`);
+  for (let i = 0; i < containerIds.length; i++) {
+    let childReady = false;
+    for (let poll = 0; poll < 10; poll++) {
+      try {
+        const childStatus = await httpGet(`${API_BASE}/${containerIds[i]}?fields=status_code&access_token=${pageToken}`);
+        if (childStatus.status_code === 'FINISHED') { childReady = true; break; }
+        if (childStatus.status_code === 'ERROR') throw new Error(`Child container ${i} (${containerIds[i]}) processing failed.`);
+        console.log(`[IG] Container ${i}: status=${childStatus.status_code}, waiting 5s (poll ${poll + 1}/10)...`);
+      } catch (err: any) {
+        if (err.message.includes('processing failed')) throw err;
+        console.log(`[IG] Container ${i} status check error: ${err.message?.substring(0, 80)}. Retrying in 5s...`);
+      }
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    if (!childReady) throw new Error(`Child container ${i} (${containerIds[i]}) did not finish processing in time.`);
+    console.log(`[IG] Container ${i}/${containerIds.length - 1} ready.`);
+  }
+
   // Step 4: Create carousel container (1 call)
   const carouselContainer = await apiWithRetry(() =>
     httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, JSON.stringify({ media_type: 'CAROUSEL', children: containerIds, caption }), { 'Content-Type': 'application/json' }),
     'carousel-container'
   );
 
-  // Step 5: Wait for processing (up to 6 polls, was 12)
+  // Step 5: Wait for carousel container processing
+  console.log(`[IG] Waiting for carousel container ${carouselContainer.id} to finish processing...`);
   let isReady = false;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const status = await apiWithRetry(() =>
-      httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`),
-      `status-check-${attempt}`
-    );
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const status = await httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`);
+    console.log(`[IG] Carousel status: ${status.status_code} (poll ${attempt + 1}/10)`);
     if (status.status_code === 'FINISHED') { isReady = true; break; }
-    if (status.status_code === 'ERROR') throw new Error('Media processing failed.');
-    await new Promise(r => setTimeout(r, 8000)); // 8s between polls (was 5s)
+    if (status.status_code === 'ERROR') throw new Error(`Carousel container processing failed: ${JSON.stringify(status)}`);
+    await new Promise(r => setTimeout(r, 8000));
   }
   if (!isReady) throw new Error('Carousel container did not finish processing in time.');
 
