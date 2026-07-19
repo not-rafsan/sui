@@ -2,37 +2,55 @@
 // Optimized to minimize API calls and handle rate limits
 
 import https from 'https';
-import dns from 'dns';
 
 const API_VERSION = 'v21.0';
 const API_BASE = `https://graph.facebook.com/${API_VERSION}`;
+const API_HOST = 'graph.facebook.com';
 
-// Force IPv4 to avoid IPv6 issues on cloud providers (Render, etc.)
-const lookupIPv4 = (hostname: string, _options: any, callback: any) => {
-  dns.lookup(hostname, { family: 4, verbatim: false }, (err, address, _family) => {
-    if (err) return callback(err);
-    callback(null, address, 4);
-  });
-};
+// Resolve graph.facebook.com to IPv4 once at module load
+let FB_IPv4: string | null = null;
+async function resolveFB() {
+  try {
+    const dns = await import('dns');
+    const { promisify } = await import('util');
+    const lookup = promisify(dns.default.lookup);
+    const result = await lookup(API_HOST, { family: 4 });
+    FB_IPv4 = result.address;
+    console.log(`[IG] Resolved ${API_HOST} -> ${FB_IPv4} (IPv4)`);
+  } catch (e: any) {
+    console.log(`[IG] IPv4 DNS lookup failed, will use hostname: ${e.message}`);
+  }
+}
+resolveFB();
+
+function getRequestOptions(urlObj: URL, method: string, headers: Record<string, string> = {}): any {
+  const opts: any = {
+    hostname: FB_IPv4 || urlObj.hostname,
+    port: 443,
+    path: urlObj.pathname + urlObj.search,
+    method,
+    headers: FB_IPv4 ? { ...headers, Host: API_HOST } : headers,
+    timeout: 30000,
+  };
+  if (FB_IPv4) opts.servername = API_HOST; // TLS SNI
+  return opts;
+}
 
 function httpPost(url: string, body: Buffer | string, headers: Record<string, string> = {}): Promise<any> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
-    const req = https.request(
-      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, method: 'POST', headers, timeout: 30000, lookup: lookupIPv4 },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          const data = Buffer.concat(chunks).toString('utf8');
-          try {
-            const json = JSON.parse(data);
-            if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
-            else resolve(json);
-          } catch { reject(new Error(`Non-JSON response (${res.statusCode}): ${data.substring(0, 200)}`)); }
-        });
-      }
-    );
+    const req = https.request(getRequestOptions(urlObj, 'POST', headers), (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf8');
+        try {
+          const json = JSON.parse(data);
+          if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
+          else resolve(json);
+        } catch { reject(new Error(`Non-JSON response (${res.statusCode}): ${data.substring(0, 200)}`)); }
+      });
+    });
     req.on('timeout', () => { req.destroy(new Error('Request timed out (30s)')); });
     req.on('error', reject);
     if (body) req.write(body);
@@ -43,21 +61,18 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
 function httpGet(url: string): Promise<any> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
-    const req = https.get(
-      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, timeout: 30000, lookup: lookupIPv4 },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          const data = Buffer.concat(chunks).toString('utf8');
-          try {
-            const json = JSON.parse(data);
-            if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
-            else resolve(json);
-          } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
-        });
-      }
-    );
+    const req = https.get(getRequestOptions(urlObj, 'GET'), (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf8');
+        try {
+          const json = JSON.parse(data);
+          if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
+          else resolve(json);
+        } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
+      });
+    });
     req.setTimeout(30000, () => { req.destroy(new Error('Request timed out (30s)')); });
     req.on('error', reject);
   });
@@ -71,14 +86,14 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
     } catch (err: any) {
       const msg = err?.message || '';
       const isRetryable = 
-        msg.includes('API [4]') ||           // app rate limit
-        msg.includes('API [80004]') ||       // user rate limit  
-        msg.includes('API [-1]') ||           // FB fatal/transient
-        msg.includes('timed out') ||          // network timeout
-        msg.includes('ECONNRESET') ||         // connection reset
-        msg.includes('ECONNREFUSED') ||       // connection refused
-        msg.includes('Fatal') ||              // FB fatal (often transient)
-        msg.includes('socket hang up');       // socket closed
+        msg.includes('API [4]') ||
+        msg.includes('API [80004]') ||
+        msg.includes('API [-1]') ||
+        msg.includes('timed out') ||
+        msg.includes('ECONNRESET') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('Fatal') ||
+        msg.includes('socket hang up');
       if (!isRetryable || attempt === 2) throw err;
       const wait = 10000 * Math.pow(2, attempt);
       console.log(`[IG] Retryable error on ${label}: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
@@ -89,33 +104,15 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
 
 // Dedicated retry for carousel container creation (9007 = media not ready yet)
 async function carouselContainerWithRetry(
-  igBusinessId: string, 
-  pageToken: string, 
-  containerIds: string[], 
-  caption: string
+  igBusinessId: string, pageToken: string, containerIds: string[], caption: string
 ): Promise<any> {
   const payload = JSON.stringify({ media_type: 'CAROUSEL', children: containerIds, caption });
-  
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      const result = await httpPost(
-        `${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, 
-        payload, 
-        { 'Content-Type': 'application/json' }
-      );
-      return result;
+      return await httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, payload, { 'Content-Type': 'application/json' });
     } catch (err: any) {
       const msg = err?.message || '';
-      const isRetryable =
-        msg.includes('API [9007]') ||
-        msg.includes('API [4]') ||
-        msg.includes('API [80004]') ||
-        msg.includes('API [-1]') ||
-        msg.includes('Fatal') ||
-        msg.includes('timed out') ||
-        msg.includes('ECONNRESET') ||
-        msg.includes('socket hang up');
-      
+      const isRetryable = msg.includes('API [9007]') || msg.includes('API [4]') || msg.includes('API [80004]') || msg.includes('API [-1]') || msg.includes('Fatal') || msg.includes('timed out') || msg.includes('ECONNRESET') || msg.includes('socket hang up');
       if (!isRetryable || attempt === 5) throw err;
       const wait = 15000 + (attempt * 5000);
       console.log(`[IG] Carousel container retry ${attempt + 1}/6: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s...`);
@@ -136,16 +133,6 @@ function buildMultipart(fields: Record<string, string>, fileFieldName: string, f
   return { body: Buffer.concat(parts), contentType: `multipart/form-data; boundary=${boundary}` };
 }
 
-/**
- * Post a carousel to Instagram.
- * 
- * Strategy for avoiding API [9007] (media not available):
- *   1. Create all individual media containers
- *   2. Wait 15 seconds for them to process (no API calls)
- *   3. Attempt carousel creation — if 9007, retry with progressive backoff
- * 
- * Also forces IPv4 DNS resolution to avoid IPv6 issues on cloud providers.
- */
 export async function postCarouselToInstagram(payload: {
   accessToken: string;
   pageId: string;
@@ -158,102 +145,76 @@ export async function postCarouselToInstagram(payload: {
 }) {
   const { accessToken, pageId, igBusinessId, caption, username, images, music } = payload;
 
-  // Step 1: Get page token if not already a page token
+  // Step 1: Get page token
   let pageToken = accessToken;
   try {
-    const test = await apiWithRetry(() =>
-      httpGet(`${API_BASE}/${pageId}?fields=id&access_token=${pageToken}`),
-      'token-check'
-    );
+    const test = await apiWithRetry(() => httpGet(`${API_BASE}/${pageId}?fields=id&access_token=${pageToken}`), 'token-check');
     if (!test.id) throw new Error('not a page token');
   } catch {
-    const pageData = await apiWithRetry(() =>
-      httpGet(`${API_BASE}/${pageId}?fields=access_token,instagram_business_account{id,username}&access_token=${accessToken}`),
-      'get-page-token'
-    );
+    const pageData = await apiWithRetry(() => httpGet(`${API_BASE}/${pageId}?fields=access_token,instagram_business_account{id,username}&access_token=${accessToken}`), 'get-page-token');
     pageToken = pageData.access_token;
     if (!pageData.instagram_business_account) throw new Error('Instagram Business Account not linked to Facebook Page.');
   }
 
-  // Step 2: Upload images to FB and get CDN URLs (2N calls)
+  // Step 2: Upload images to FB and get CDN URLs
   console.log(`[IG] Step 2: Uploading ${images.length} images...`);
   const cdnUrls: string[] = [];
   for (let i = 0; i < images.length; i++) {
     const cleanBase64 = images[i].replace(/^data:image\/\w+;base64,/, '');
     const imageBuffer = Buffer.from(cleanBase64, 'base64');
     const { body, contentType } = buildMultipart({ published: 'false' }, 'source', imageBuffer, `slide_${i}.png`, 'image/png');
-
-    const uploadResult = await apiWithRetry(() =>
-      httpPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }),
-      `upload-slide-${i}`
-    );
+    const uploadResult = await apiWithRetry(() => httpPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }), `upload-slide-${i}`);
     console.log(`[IG] Uploaded slide ${i}, photo ID: ${uploadResult.id}`);
-
-    const photoInfo = await apiWithRetry(() =>
-      httpGet(`${API_BASE}/${uploadResult.id}?fields=images&access_token=${pageToken}`),
-      `cdn-url-${i}`
-    );
+    const photoInfo = await apiWithRetry(() => httpGet(`${API_BASE}/${uploadResult.id}?fields=images&access_token=${pageToken}`), `cdn-url-${i}`);
     cdnUrls.push(photoInfo.images[0].source);
-
     if (i < images.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
 
-  // Step 3: Create IG media containers (N calls)
+  // Step 3: Create IG media containers
   console.log(`[IG] Step 3: Creating ${cdnUrls.length} media containers...`);
   const containerIds: string[] = [];
   let musicSkipped = false;
   for (let i = 0; i < cdnUrls.length; i++) {
     const containerPayload: Record<string, unknown> = { image_url: cdnUrls[i] };
     if (music && music.music_asset_id && !music.music_asset_id.startsWith('_')) containerPayload.music = music;
-
     try {
-      const container = await apiWithRetry(() =>
-        httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, JSON.stringify(containerPayload), { 'Content-Type': 'application/json' }),
-        `container-${i}`
-      );
+      const container = await apiWithRetry(() => httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, JSON.stringify(containerPayload), { 'Content-Type': 'application/json' }), `container-${i}`);
       containerIds.push(container.id);
       console.log(`[IG] Container ${i}: ${container.id}`);
     } catch (musicErr: any) {
       if (music && music.music_asset_id) {
         if (!musicSkipped) { console.error(`[Music] API rejected music: ${musicErr.message?.substring(0, 100)}`); musicSkipped = true; }
-        const container = await apiWithRetry(() =>
-          httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, JSON.stringify({ image_url: cdnUrls[i] }), { 'Content-Type': 'application/json' }),
-          `container-retry-${i}`
-        );
+        const container = await apiWithRetry(() => httpPost(`${API_BASE}/${igBusinessId}/media?access_token=${pageToken}`, JSON.stringify({ image_url: cdnUrls[i] }), { 'Content-Type': 'application/json' }), `container-retry-${i}`);
         containerIds.push(container.id);
       } else throw musicErr;
     }
     if (i < cdnUrls.length - 1) await new Promise(r => setTimeout(r, 1000));
   }
 
-  // Step 3.5: Let containers process — fixed 15s delay (no API calls needed)
-  console.log(`[IG] ${containerIds.length} containers created. Waiting 15s for processing...`);
+  // Step 3.5: Wait for containers to process
+  console.log(`[IG] Waiting 15s for ${containerIds.length} containers to process...`);
   await new Promise(r => setTimeout(r, 15000));
 
-  // Step 4: Create carousel container with 9007-specific retry
+  // Step 4: Create carousel container (with 9007 retry)
   console.log(`[IG] Step 4: Creating carousel container...`);
   const carouselContainer = await carouselContainerWithRetry(igBusinessId, pageToken, containerIds, caption);
-  console.log(`[IG] Carousel container created: ${carouselContainer.id}`);
+  console.log(`[IG] Carousel container: ${carouselContainer.id}`);
 
-  // Step 5: Wait for carousel container processing
+  // Step 5: Wait for carousel processing
   console.log(`[IG] Step 5: Waiting for carousel processing...`);
   let isReady = false;
   for (let attempt = 0; attempt < 10; attempt++) {
     const status = await httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`);
     console.log(`[IG] Carousel status: ${status.status_code} (poll ${attempt + 1}/10)`);
     if (status.status_code === 'FINISHED') { isReady = true; break; }
-    if (status.status_code === 'ERROR') throw new Error(`Carousel container processing failed: ${JSON.stringify(status)}`);
+    if (status.status_code === 'ERROR') throw new Error(`Carousel processing failed: ${JSON.stringify(status)}`);
     await new Promise(r => setTimeout(r, 8000));
   }
   if (!isReady) throw new Error('Carousel container did not finish processing in time.');
 
   // Step 6: Publish
   console.log(`[IG] Step 6: Publishing...`);
-  const published = await apiWithRetry(() =>
-    httpPost(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`, JSON.stringify({ creation_id: carouselContainer.id }), { 'Content-Type': 'application/json' }),
-    'publish'
-  );
-
-  console.log(`[IG] Published! Post ID: ${published.id}`);
+  const published = await apiWithRetry(() => httpPost(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`, JSON.stringify({ creation_id: carouselContainer.id }), { 'Content-Type': 'application/json' }), 'publish');
+  console.log(`[IG] Published! ID: ${published.id}`);
   return { postId: published.id, url: `https://www.instagram.com/p/${published.id}/` };
 }
