@@ -110,13 +110,24 @@ export async function postCarouselToInstagram(payload: {
 }) {
   const { accessToken, pageId, igBusinessId, caption, username, images, music } = payload;
 
-  // Step 1: Get page token (1 call, was 2 — removed unnecessary /me check)
-  const pageData = await apiWithRetry(() =>
-    httpGet(`${API_BASE}/${pageId}?fields=access_token,instagram_business_account{id,username}&access_token=${accessToken}`),
-    'get-page-token'
-  );
-  const pageToken = pageData.access_token;
-  if (!pageData.instagram_business_account) throw new Error('Instagram Business Account not linked to Facebook Page.');
+  // Step 1: Get page token if not already a page token
+  // Page tokens are longer and start with the same prefix but we detect by trying directly
+  let pageToken = accessToken;
+  try {
+    const test = await apiWithRetry(() =>
+      httpGet(`${API_BASE}/${pageId}?fields=id&access_token=${pageToken}`),
+      'token-check'
+    );
+    if (!test.id) throw new Error('not a page token');
+  } catch {
+    // Not a page token — exchange it
+    const pageData = await apiWithRetry(() =>
+      httpGet(`${API_BASE}/${pageId}?fields=access_token,instagram_business_account{id,username}&access_token=${accessToken}`),
+      'get-page-token'
+    );
+    pageToken = pageData.access_token;
+    if (!pageData.instagram_business_account) throw new Error('Instagram Business Account not linked to Facebook Page.');
+  }
 
   // Step 2: Upload images to FB and get CDN URLs (2N calls)
   const cdnUrls: string[] = [];
