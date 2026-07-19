@@ -2,15 +2,24 @@
 // Optimized to minimize API calls and handle rate limits
 
 import https from 'https';
+import dns from 'dns';
 
 const API_VERSION = 'v21.0';
 const API_BASE = `https://graph.facebook.com/${API_VERSION}`;
+
+// Force IPv4 to avoid IPv6 issues on cloud providers (Render, etc.)
+const lookupIPv4 = (hostname: string, options: any, callback: any) => {
+  dns.resolve4(hostname, (err, addresses) => {
+    if (err) return callback(err);
+    callback(null, addresses[0], 4);
+  });
+};
 
 function httpPost(url: string, body: Buffer | string, headers: Record<string, string> = {}): Promise<any> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
     const req = https.request(
-      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, method: 'POST', headers, timeout: 30000 },
+      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, method: 'POST', headers, timeout: 30000, lookup: lookupIPv4 },
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -33,18 +42,22 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
 
 function httpGet(url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
-      res.on('end', () => {
-        const data = Buffer.concat(chunks).toString('utf8');
-        try {
-          const json = JSON.parse(data);
-          if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
-          else resolve(json);
-        } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
-      });
-    });
+    const urlObj = new URL(url);
+    const req = https.get(
+      { hostname: urlObj.hostname, port: 443, path: urlObj.pathname + urlObj.search, timeout: 30000, lookup: lookupIPv4 },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
+          try {
+            const json = JSON.parse(data);
+            if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
+            else resolve(json);
+          } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
+        });
+      }
+    );
     req.setTimeout(30000, () => { req.destroy(new Error('Request timed out (30s)')); });
     req.on('error', reject);
   });
@@ -67,7 +80,6 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
         msg.includes('Fatal') ||              // FB fatal (often transient)
         msg.includes('socket hang up');       // socket closed
       if (!isRetryable || attempt === 2) throw err;
-      // Exponential backoff: 10s, 20s
       const wait = 10000 * Math.pow(2, attempt);
       console.log(`[IG] Retryable error on ${label}: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
       await new Promise(r => setTimeout(r, wait));
@@ -94,7 +106,6 @@ async function carouselContainerWithRetry(
       return result;
     } catch (err: any) {
       const msg = err?.message || '';
-      // 9007 = child media not ready; also retry on rate limits and network errors
       const isRetryable =
         msg.includes('API [9007]') ||
         msg.includes('API [4]') ||
@@ -106,8 +117,6 @@ async function carouselContainerWithRetry(
         msg.includes('socket hang up');
       
       if (!isRetryable || attempt === 5) throw err;
-      
-      // Progressive backoff: 15s, 20s, 25s, 30s, 35s
       const wait = 15000 + (attempt * 5000);
       console.log(`[IG] Carousel container retry ${attempt + 1}/6: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s...`);
       await new Promise(r => setTimeout(r, wait));
@@ -135,7 +144,7 @@ function buildMultipart(fields: Record<string, string>, fileFieldName: string, f
  *   2. Wait 15 seconds for them to process (no API calls)
  *   3. Attempt carousel creation — if 9007, retry with progressive backoff
  * 
- * This avoids N*10 extra API calls from per-container status polling.
+ * Also forces IPv4 DNS resolution to avoid IPv6 issues on cloud providers.
  */
 export async function postCarouselToInstagram(payload: {
   accessToken: string;
@@ -167,6 +176,7 @@ export async function postCarouselToInstagram(payload: {
   }
 
   // Step 2: Upload images to FB and get CDN URLs (2N calls)
+  console.log(`[IG] Step 2: Uploading ${images.length} images...`);
   const cdnUrls: string[] = [];
   for (let i = 0; i < images.length; i++) {
     const cleanBase64 = images[i].replace(/^data:image\/\w+;base64,/, '');
@@ -177,6 +187,7 @@ export async function postCarouselToInstagram(payload: {
       httpPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }),
       `upload-slide-${i}`
     );
+    console.log(`[IG] Uploaded slide ${i}, photo ID: ${uploadResult.id}`);
 
     const photoInfo = await apiWithRetry(() =>
       httpGet(`${API_BASE}/${uploadResult.id}?fields=images&access_token=${pageToken}`),
@@ -184,11 +195,11 @@ export async function postCarouselToInstagram(payload: {
     );
     cdnUrls.push(photoInfo.images[0].source);
 
-    // Stagger uploads to avoid rate limiting
     if (i < images.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
 
   // Step 3: Create IG media containers (N calls)
+  console.log(`[IG] Step 3: Creating ${cdnUrls.length} media containers...`);
   const containerIds: string[] = [];
   let musicSkipped = false;
   for (let i = 0; i < cdnUrls.length; i++) {
@@ -201,6 +212,7 @@ export async function postCarouselToInstagram(payload: {
         `container-${i}`
       );
       containerIds.push(container.id);
+      console.log(`[IG] Container ${i}: ${container.id}`);
     } catch (musicErr: any) {
       if (music && music.music_asset_id) {
         if (!musicSkipped) { console.error(`[Music] API rejected music: ${musicErr.message?.substring(0, 100)}`); musicSkipped = true; }
@@ -215,16 +227,16 @@ export async function postCarouselToInstagram(payload: {
   }
 
   // Step 3.5: Let containers process — fixed 15s delay (no API calls needed)
-  console.log(`[IG] ${containerIds.length} containers created. Waiting 15s for processing before grouping...`);
+  console.log(`[IG] ${containerIds.length} containers created. Waiting 15s for processing...`);
   await new Promise(r => setTimeout(r, 15000));
 
-  // Step 4: Create carousel container with 9007-specific retry (up to 6 attempts, 15-35s backoff)
-  console.log(`[IG] Creating carousel container with ${containerIds.length} children...`);
+  // Step 4: Create carousel container with 9007-specific retry
+  console.log(`[IG] Step 4: Creating carousel container...`);
   const carouselContainer = await carouselContainerWithRetry(igBusinessId, pageToken, containerIds, caption);
   console.log(`[IG] Carousel container created: ${carouselContainer.id}`);
 
-  // Step 5: Wait for carousel container processing (up to 10 polls)
-  console.log(`[IG] Waiting for carousel container to finish processing...`);
+  // Step 5: Wait for carousel container processing
+  console.log(`[IG] Step 5: Waiting for carousel processing...`);
   let isReady = false;
   for (let attempt = 0; attempt < 10; attempt++) {
     const status = await httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`);
@@ -235,11 +247,13 @@ export async function postCarouselToInstagram(payload: {
   }
   if (!isReady) throw new Error('Carousel container did not finish processing in time.');
 
-  // Step 6: Publish (1 call)
+  // Step 6: Publish
+  console.log(`[IG] Step 6: Publishing...`);
   const published = await apiWithRetry(() =>
     httpPost(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`, JSON.stringify({ creation_id: carouselContainer.id }), { 'Content-Type': 'application/json' }),
     'publish'
   );
 
+  console.log(`[IG] Published! Post ID: ${published.id}`);
   return { postId: published.id, url: `https://www.instagram.com/p/${published.id}/` };
 }
