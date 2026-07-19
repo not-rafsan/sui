@@ -8,10 +8,10 @@ const API_VERSION = 'v21.0';
 const API_BASE = `https://graph.facebook.com/${API_VERSION}`;
 
 // Force IPv4 to avoid IPv6 issues on cloud providers (Render, etc.)
-const lookupIPv4 = (hostname: string, options: any, callback: any) => {
-  dns.resolve4(hostname, (err, addresses) => {
+const lookupIPv4 = (hostname: string, _options: any, callback: any) => {
+  dns.lookup(hostname, { family: 4, verbatim: false }, (err, address, _family) => {
     if (err) return callback(err);
-    callback(null, addresses[0], 4);
+    callback(null, address, 4);
   });
 };
 
