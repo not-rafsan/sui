@@ -302,45 +302,60 @@ export default function InstagramPanel({ selectedCarousel, onActionComplete }: I
         return;
       }
 
-      // If the response already has the result (Render inline mode), show it directly
+      // Immediate result (shouldn't happen anymore but kept as fallback)
       if (data.status === 'done' || (data.success && data.url)) {
         setPostProgress('');
         setResult({ success: true, message: data.message + (data.url ? `\n\nView: ${data.url}` : '') });
         onActionComplete();
-      } else if (data.jobId) {
-        // Local dev mode: poll for result
-        const jobId = data.jobId;
-        setPostProgress('Uploading to Instagram (this takes 30-60s)...');
+        setIsPosting(false);
+        return;
+      }
 
-        const pollResult = await new Promise<{ success: boolean; message: string }>((resolve) => {
-          let attempts = 0;
-          const interval = setInterval(async () => {
-            attempts++;
-            try {
-              const statusRes = await fetch(`/api/instagram/post?jobId=${jobId}`);
-              const statusData = await statusRes.json();
-
-              if (statusData.status === 'done' || statusData.success) {
-                clearInterval(interval);
-                resolve({ success: true, message: statusData.message + (statusData.url ? `\n\nView: ${statusData.url}` : '') });
-              } else if (statusData.status === 'error' || statusData.success === false) {
-                clearInterval(interval);
-                resolve({ success: false, message: statusData.message || 'Posting failed.' });
-              } else if (attempts > 90) {
-                clearInterval(interval);
-                resolve({ success: false, message: 'Posting timed out. Check your Instagram account manually.' });
-              }
-            } catch { /* keep polling */ }
-          }, 3000);
-        });
-
-        setPostProgress('');
-        setResult(pollResult);
-        if (pollResult.success) onActionComplete();
-      } else {
+      // Async processing — poll for result (both Render and local dev)
+      const pollId = data.jobId || data.carouselId;
+      if (!pollId) {
         setPostProgress('');
         setResult({ success: false, message: 'Unexpected response from server.' });
+        setIsPosting(false);
+        return;
       }
+
+      const pollUrl = data.jobId
+        ? `/api/instagram/post?jobId=${pollId}`
+        : `/api/instagram/post?carouselId=${pollId}`;
+
+      setPostProgress(data.message || 'Uploading to Instagram (this takes 1-3 minutes)...');
+
+      const pollResult = await new Promise<{ success: boolean; message: string }>((resolve) => {
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts++;
+          try {
+            const statusRes = await fetch(pollUrl);
+            const statusData = await statusRes.json();
+
+            // Update progress message if available
+            if (statusData.message && statusData.status === 'processing') {
+              setPostProgress(statusData.message);
+            }
+
+            if (statusData.status === 'done' || (statusData.success && statusData.status !== 'processing')) {
+              clearInterval(interval);
+              resolve({ success: true, message: statusData.message + (statusData.url ? `\n\nView: ${statusData.url}` : '') });
+            } else if (statusData.status === 'error' || statusData.success === false) {
+              clearInterval(interval);
+              resolve({ success: false, message: statusData.message || 'Posting failed.' });
+            } else if (attempts > 120) { // 6 minutes max
+              clearInterval(interval);
+              resolve({ success: false, message: 'Posting timed out. Check your Instagram account manually.' });
+            }
+          } catch { /* keep polling */ }
+        }, 3000);
+      });
+
+      setPostProgress('');
+      setResult(pollResult);
+      if (pollResult.success) onActionComplete();
 
     } catch (err) {
       setPostProgress('');

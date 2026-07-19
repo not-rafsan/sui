@@ -8,6 +8,9 @@ const QUEUE_DIR = join(process.cwd(), 'temp', 'ig-queue');
 
 const IS_RENDER = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
 
+// In-memory store for async post results (surives within a single server instance)
+const postResults = new Map<string, { success: boolean; status: string; message: string; url?: string; postId?: string }>();
+
 /* ── POST: Post carousel to Instagram ── */
 export async function POST(request: NextRequest) {
   try {
@@ -41,17 +44,50 @@ export async function POST(request: NextRequest) {
       music: music || null,
     };
 
-    // On Render: post inline (no child_process support). On local: spawn ig-poster.js as background process.
+    // On Render: fire-and-forget (avoids Render's ~30s request timeout)
     if (IS_RENDER) {
-      console.log(`[IG Post] Render mode — posting inline (${images.length} images)`);
-      const result = await postCarouselToInstagram(payload);
-      await db.carousel.update({ where: { id: carouselId }, data: { status: 'posted' } });
+      // Mark as processing in DB
+      await db.carousel.update({ where: { id: carouselId }, data: { status: 'posting' } });
+
+      // Store initial processing state
+      postResults.set(carouselId, { success: false, status: 'processing', message: 'Uploading slides to Instagram...' });
+
+      // Fire and forget — the Node.js event loop keeps this alive
+      (async () => {
+        try {
+          console.log(`[IG Post] Render async — starting (${images.length} images)`);
+          postResults.set(carouselId, { success: false, status: 'processing', message: `Uploading ${images.length} slides to Instagram...` });
+          
+          const result = await postCarouselToInstagram(payload);
+          
+          await db.carousel.update({ where: { id: carouselId }, data: { status: 'posted' } });
+          postResults.set(carouselId, {
+            success: true,
+            status: 'done',
+            message: `Carousel posted to @${payload.username}!`,
+            postId: result.postId,
+            url: result.url,
+          });
+          console.log(`[IG Post] Render async — SUCCESS: ${result.url}`);
+        } catch (err: any) {
+          console.error(`[IG Post] Render async — FAILED: ${err.message}`);
+          await db.carousel.update({ where: { id: carouselId }, data: { status: 'draft' } }).catch(() => {});
+          postResults.set(carouselId, {
+            success: false,
+            status: 'error',
+            message: err.message || 'Failed to post',
+          });
+          // Clean up after 5 minutes
+          setTimeout(() => postResults.delete(carouselId), 300000);
+        }
+      })();
+
+      // Return immediately
       return NextResponse.json({
         success: true,
-        status: 'done',
-        message: `Carousel posted to @${account.username}!`,
-        postId: result.postId,
-        url: result.url,
+        status: 'processing',
+        carouselId,
+        message: `Posting ${images.length} slides to @${account.username}... This takes 1-3 minutes.`,
       });
     }
 
@@ -99,14 +135,35 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/* ── GET: Poll job status (local dev only) ── */
+/* ── GET: Poll post status ── */
 export async function GET(request: NextRequest) {
-  if (IS_RENDER) {
-    return NextResponse.json({ error: 'Polling not supported on Render. Posts complete inline.' }, { status: 400 });
-  }
-
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get('jobId');
+  const carouselId = searchParams.get('carouselId');
+
+  // Render mode: check in-memory results + DB
+  if (IS_RENDER) {
+    if (carouselId) {
+      // Check in-memory result first
+      const result = postResults.get(carouselId);
+      if (result) return NextResponse.json(result);
+
+      // Fall back to DB status
+      const carousel = await db.carousel.findUnique({ where: { id: carouselId }, select: { status: true } });
+      if (!carousel) return NextResponse.json({ status: 'not_found', error: 'Carousel not found' }, { status: 404 });
+
+      if (carousel.status === 'posted') {
+        return NextResponse.json({ success: true, status: 'done', message: 'Carousel posted successfully!' });
+      }
+      if (carousel.status === 'posting') {
+        return NextResponse.json({ status: 'processing', message: 'Uploading to Instagram...' });
+      }
+      return NextResponse.json({ status: 'unknown', message: 'Post may have failed. Check Instagram directly.' });
+    }
+    return NextResponse.json({ error: 'carouselId is required on Render' }, { status: 400 });
+  }
+
+  // Local dev: file-based queue
   if (!jobId) return NextResponse.json({ error: 'jobId is required' }, { status: 400 });
 
   try {
