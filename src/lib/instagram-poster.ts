@@ -204,9 +204,10 @@ export async function postCarouselToInstagram(payload: {
   }
   if (!isReady) throw new Error('Carousel container did not finish processing in time.');
 
-  // Step 6: Publish
-  console.log(`[IG] Step 6: Publishing...`);
-  const published = await apiWithRetry(() => httpPost(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`, JSON.stringify({ creation_id: carouselContainer.id }), { 'Content-Type': 'application/json' }), 'publish');
+  // Step 6: Wait before publishing to avoid rate limit, then publish with aggressive retry
+  console.log(`[IG] Step 6: Waiting 10s before publish to avoid rate limit...`);
+  await new Promise(r => setTimeout(r, 10000));
+  const published = await apiWithRetry(() => httpPost(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`, JSON.stringify({ creation_id: carouselContainer.id }), { 'Content-Type': 'application/json' }), 'publish', 6);
   console.log(`[IG] Published! ID: ${published.id}`);
   return { postId: published.id, url: `https://www.instagram.com/p/${published.id}/` };
 }
