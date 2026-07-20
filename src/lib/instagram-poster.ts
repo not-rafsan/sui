@@ -101,11 +101,17 @@ export async function postCarouselToInstagram(payload: {
 }) {
   const { accessToken, pageId, igBusinessId, caption, username, images, music } = payload;
 
-  // Step 1: Use token from DB directly (ensureInstagramConnection already exchanges to page token)
-  // If upload fails with "must be posted as page", exchange to page token then
-  let pageToken = accessToken;
-  let needsTokenExchange = false;
-  console.log(`[IG] Step 1: Using token from DB (${accessToken.substring(0, 12)}...)`);
+  // Step 1: ALWAYS fetch page access token (user token cannot upload unpublished photos)
+  console.log(`[IG] Step 1: Fetching page access token...`);
+  let pageToken: string;
+  try {
+    const pageData = await apiWithRetry(() => fetchGet(`${API_BASE}/${pageId}?fields=access_token&access_token=${accessToken}`), 'get-page-token', 3);
+    pageToken = pageData.access_token;
+    if (!pageToken) throw new Error('Page access_token field is empty in response');
+    console.log(`[IG] Got page token (${pageToken.substring(0, 15)}...)`);
+  } catch (err: any) {
+    throw new Error(`Failed to get page access token: ${err.message}`);
+  }
 
   // Step 2: Upload images to FB and get CDN URLs
   console.log(`[IG] Step 2: Uploading ${images.length} images...`);
@@ -117,27 +123,10 @@ export async function postCarouselToInstagram(payload: {
     const cleanBase64 = images[i].replace(/^data:image\/\w+;base64,/, '');
     const imageBuffer = Buffer.from(cleanBase64, 'base64');
     const { body, contentType } = buildMultipart({ published: 'false' }, 'source', imageBuffer, `slide_${i}.${ext}`, detectedMime);
-    try {
-      const uploadResult = await apiWithRetry(() => fetchPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }), `upload-slide-${i}`);
-      console.log(`[IG] Uploaded slide ${i}, photo ID: ${uploadResult.id}`);
-      const photoInfo = await apiWithRetry(() => fetchGet(`${API_BASE}/${uploadResult.id}?fields=images&access_token=${pageToken}`), `cdn-url-${i}`);
-      cdnUrls.push(photoInfo.images[0].source);
-    } catch (uploadErr: any) {
-      const msg = uploadErr?.message || '';
-      // If "must be posted as page" — exchange token and retry this upload
-      if (!needsTokenExchange && (msg.includes('must be posted') || msg.includes('API [200]'))) {
-        needsTokenExchange = true;
-        console.log(`[IG] Token needs exchange (error: ${msg.substring(0, 60)}). Exchanging...`);
-        const pageData = await apiWithRetry(() => fetchGet(`${API_BASE}/${pageId}?fields=access_token&access_token=${accessToken}`), 'get-page-token');
-        if (pageData.access_token) {
-          pageToken = pageData.access_token;
-          console.log(`[IG] Got page token (${pageToken.substring(0, 12)}...)`);
-          // Retry this upload with page token
-          i--; continue;
-        }
-      }
-      throw uploadErr;
-    }
+    const uploadResult = await apiWithRetry(() => fetchPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }), `upload-slide-${i}`);
+    console.log(`[IG] Uploaded slide ${i}, photo ID: ${uploadResult.id}`);
+    const photoInfo = await apiWithRetry(() => fetchGet(`${API_BASE}/${uploadResult.id}?fields=images&access_token=${pageToken}`), `cdn-url-${i}`);
+    cdnUrls.push(photoInfo.images[0].source);
     if (i < images.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
 

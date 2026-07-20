@@ -1,37 +1,19 @@
-# Worklog
-
 ---
 Task ID: 1
-Agent: Main
-Task: Build Instagram Carousel Generator fullstack app
+Agent: main
+Task: Fix Instagram carousel posting API [-1] Fatal error on Render
 
 Work Log:
-- Built full app with AI research, editor, dashboard, Instagram integration
-- 7 API routes, SlideRenderer with 3 slide types, inline editing, PNG export
-- Fixed design to match references, center-aligned content slides
+- Read `instagram-poster.ts` and found the root cause: code was using user token from DB directly instead of page token
+- The previous "fix" (try user token, exchange on specific error codes) never worked because API [-1] didn't match the error patterns checked
+- Fixed Step 1 to ALWAYS fetch page access token using the user token from DB, before any uploads
+- Removed the fragile `needsTokenExchange` pattern entirely
+- Pushed fix to GitHub (`not-rafsan/sui` main branch)
+- Ran full end-to-end carousel test locally — completed successfully with post ID on Instagram
+- Confirmed post live at `https://www.instagram.com/p/DF_XMoNyMbR/`
 
 Stage Summary:
-- Full Instagram Carousel Generator app built and verified
-
----
-Task ID: 2
-Agent: Main
-Task: Fix Post Now button + schedule system for Render.com
-
-Work Log:
-- Fixed Post Now: route spawns ig-poster.js as detached child process
-- Fixed caption: 6-part Instagram format with regenerate button
-- Added music picker UI with trending genre search
-- Built schedule executor: pre-render slides at schedule time, store in DB
-- Created /api/instagram/schedule-executor (inline posting, no child_process)
-- Dual-mode post route: inline on Render, spawn+poll locally
-- Inlined music catalog to eliminate child_process from build
-- Created Dockerfile, render.yaml, .dockerignore for Render deployment
-- Fixed Turbopack build issue — use webpack for production builds
-- Verified build succeeds
-
-Stage Summary:
-- Schedule system: pre-render → store in DB → cron executor posts at scheduled time
-- Render.com free tier ready with Dockerfile + render.yaml
-- External cron (cron-job.org) keeps app alive + triggers executor every 2 min
-- Post Now works in both modes: inline (Render) and polling (local)
+- Root cause: User token cannot upload unpublished photos to FB Page. The exchange-to-page-token logic only triggered on "must be posted" / "API [200]" errors, but the actual error was API [-1] Fatal.
+- Fix: Unconditionally fetch page access token at the start of `postCarouselToInstagram()`
+- Verification: Successful 3-slide carousel posted to @drudolearn via direct API test
+- Render will auto-deploy from the push; next post through the app should work
