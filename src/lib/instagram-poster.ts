@@ -51,8 +51,8 @@ function httpGet(url: string): Promise<any> {
 }
 
 // Wrapper with retry for rate limits AND network errors
-async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+async function apiWithRetry(fn: () => Promise<any>, label: string, maxRetries = 5): Promise<any> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
@@ -67,9 +67,9 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
         msg.includes('ECONNREFUSED') ||
         msg.includes('Fatal') ||
         msg.includes('socket hang up');
-      if (!isRetryable || attempt === 2) throw err;
-      const wait = 10000 * Math.pow(2, attempt);
-      console.log(`[IG] Retryable error on ${label}: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s (attempt ${attempt + 1}/3)...`);
+      if (!isRetryable || attempt === maxRetries - 1) throw err;
+      const wait = 8000 * Math.pow(1.5, attempt);
+      console.log(`[IG] Retryable error on ${label}: ${msg.substring(0, 80)}. Waiting ${Math.round(wait / 1000)}s (attempt ${attempt + 1}/${maxRetries})...`);
       await new Promise(r => setTimeout(r, wait));
     }
   }
@@ -171,7 +171,7 @@ export async function postCarouselToInstagram(payload: {
     let finished = false;
     for (let poll = 0; poll < 20; poll++) {
       try {
-        const status = await httpGet(`${API_BASE}/${cid}?fields=status_code&access_token=${pageToken}`);
+        const status = await apiWithRetry(() => httpGet(`${API_BASE}/${cid}?fields=status_code&access_token=${pageToken}`), `poll-container-${i}`, 3);
         console.log(`[IG] Container ${i} (${cid.substring(0, 12)}...) status: ${status.status_code} (poll ${poll + 1}/20)`);
         if (status.status_code === 'FINISHED') { finished = true; break; }
         if (status.status_code === 'ERROR') throw new Error(`Container ${i} processing failed with ERROR status`);
@@ -197,7 +197,7 @@ export async function postCarouselToInstagram(payload: {
   console.log(`[IG] Step 5: Waiting for carousel processing...`);
   let isReady = false;
   for (let attempt = 0; attempt < 10; attempt++) {
-    const status = await httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`);
+    const status = await apiWithRetry(() => httpGet(`${API_BASE}/${carouselContainer.id}?fields=status_code&access_token=${pageToken}`), 'poll-carousel', 3);
     console.log(`[IG] Carousel status: ${status.status_code} (poll ${attempt + 1}/10)`);
     if (status.status_code === 'FINISHED') { isReady = true; break; }
     if (status.status_code === 'ERROR') throw new Error(`Carousel processing failed: ${JSON.stringify(status)}`);
