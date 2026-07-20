@@ -1,0 +1,632 @@
+     1→'use client';
+     2→
+     3→import React, { useState, useEffect, useRef, useCallback } from 'react';
+     4→import { Button } from '@/components/ui/button';
+     5→import { Input } from '@/components/ui/input';
+     6→import { Label } from '@/components/ui/label';
+     7→import { Textarea } from '@/components/ui/textarea';
+     8→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+     9→import { Instagram, Link2, Unlink, Calendar, Send, CheckCircle2, AlertCircle, Loader2, ExternalLink, RefreshCw, Music, Search, X, TrendingUp, Play, Disc3 } from 'lucide-react';
+    10→import SlideRenderer, { type SlideData } from '@/components/carousel/slide-renderer';
+    11→
+    12→interface MusicTrack {
+    13→  id: string;
+    14→  title: string;
+    15→  artist: string;
+    16→  display_name: string;
+    17→  genre?: string;
+    18→  vibe?: string;
+    19→  cover_url?: string | null;
+    20→  duration_ms?: number;
+    21→}
+    22→
+    23→interface InstagramPanelProps {
+    24→  selectedCarousel: { id: string; title: string; caption: string | null; slides?: SlideData[] } | null;
+    25→  onActionComplete: () => void;
+    26→}
+    27→
+    28→const TRENDING_QUERIES = [
+    29→  'Phonk', 'Lo-fi', 'Motivational', 'Cinematic',
+    30→  'Trap', 'Synthwave', 'Aesthetic', 'EDM',
+    31→  'Hip Hop', 'Chill',
+    32→];
+    33→
+    34→export default function InstagramPanel({ selectedCarousel, onActionComplete }: InstagramPanelProps) {
+    35→  const [connected, setConnected] = useState(false);
+    36→  const [username, setUsername] = useState('');
+    37→  const [isConnecting, setIsConnecting] = useState(false);
+    38→  const [isScheduling, setIsScheduling] = useState(false);
+    39→  const [isPosting, setIsPosting] = useState(false);
+    40→  const [postProgress, setPostProgress] = useState('');
+    41→  const [scheduleTime, setScheduleTime] = useState('');
+    42→  const [scheduleCaption, setScheduleCaption] = useState('');
+    43→  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+    44→  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+    45→
+    46→  const [formUsername, setFormUsername] = useState('');
+    47→  const [formToken, setFormToken] = useState('');
+    48→  const [formUserId, setFormUserId] = useState('');
+    49→  const [isRegeneratingCaption, setIsRegeneratingCaption] = useState(false);
+    50→
+    51→  // Music state
+    52→  const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
+    53→  const [musicSearchQuery, setMusicSearchQuery] = useState('');
+    54→  const [musicResults, setMusicResults] = useState<MusicTrack[]>([]);
+    55→  const [isSearchingMusic, setIsSearchingMusic] = useState(false);
+    56→  const [showMusicPicker, setShowMusicPicker] = useState(false);
+    57→  const musicSearchTimer = useRef<NodeJS.Timeout | null>(null);
+    58→
+    59→  // Off-screen container for rendering slides to images
+    60→  const offscreenRef = useRef<HTMLDivElement>(null);
+    61→
+    62→  const checkConnection = async () => {
+    63→    try {
+    64→      const res = await fetch('/api/instagram/connect');
+    65→      if (res.ok) {
+    66→        const data = await res.json();
+    67→        setConnected(data.connected);
+    68→        if (data.connected) setUsername(data.username);
+    69→      }
+    70→    } catch { /* ignore */ }
+    71→  };
+    72→
+    73→  useEffect(() => { checkConnection(); }, []);
+    74→
+    75→  // Music search with debounce
+    76→  const searchMusic = useCallback(async (query: string) => {
+    77→    if (!query.trim()) { setMusicResults([]); return; }
+    78→    setIsSearchingMusic(true);
+    79→    try {
+    80→      const res = await fetch(`/api/instagram/music/search?q=${encodeURIComponent(query)}`);
+    81→      const data = await res.json();
+    82→      setMusicResults(data.tracks || []);
+    83→    } catch { setMusicResults([]); }
+    84→    setIsSearchingMusic(false);
+    85→  }, []);
+    86→
+    87→  const handleMusicSearchChange = (value: string) => {
+    88→    setMusicSearchQuery(value);
+    89→    if (musicSearchTimer.current) clearTimeout(musicSearchTimer.current);
+    90→    musicSearchTimer.current = setTimeout(() => searchMusic(value), 500);
+    91→  };
+    92→
+    93→  const handleTrendingClick = (query: string) => {
+    94→    setMusicSearchQuery(query);
+    95→    searchMusic(query);
+    96→  };
+    97→
+    98→  const handleSelectTrack = (track: MusicTrack) => {
+    99→    setSelectedTrack(track);
+   100→    setShowMusicPicker(false);
+   101→    setMusicResults([]);
+   102→    setMusicSearchQuery('');
+   103→  };
+   104→
+   105→  const handleRemoveMusic = () => {
+   106→    setSelectedTrack(null);
+   107→  };
+   108→
+   109→  // Generate PNG images from slides using html-to-image
+   110→  const generateSlideImages = useCallback(async (slides: SlideData[]): Promise<string[]> => {
+   111→    const { toPng } = await import('html-to-image');
+   112→
+   113→    const container = document.createElement('div');
+   114→    container.style.position = 'fixed';
+   115→    container.style.left = '-9999px';
+   116→    container.style.top = '0';
+   117→    container.style.zIndex = '-1';
+   118→    document.body.appendChild(container);
+   119→
+   120→    const images: string[] = [];
+   121→
+   122→    try {
+   123→      for (let i = 0; i < slides.length; i++) {
+   124→        setPostProgress(`Generating image ${i + 1} of ${slides.length}...`);
+   125→
+   126→        const wrapper = document.createElement('div');
+   127→        container.appendChild(wrapper);
+   128→
+   129→        const ReactDOM = await import('react-dom/client');
+   130→        const root = ReactDOM.createRoot(wrapper);
+   131→        await new Promise<void>((resolve) => {
+   132→          root.render(
+   133→            React.createElement(SlideRenderer, {
+   134→              slide: slides[i],
+   135→              width: 1080,
+   136→              height: 1350,
+   137→            })
+   138→          );
+   139→          setTimeout(resolve, 300);
+   140→        });
+   141→
+   142→        const dataUrl = await toPng(wrapper.firstElementChild as HTMLElement || wrapper, {
+   143→          width: 1080,
+   144→          height: 1350,
+   145→          pixelRatio: 1,
+   146→          cacheBust: true,
+   147→          style: { transform: 'none', transformOrigin: 'top left' },
+   148→        });
+   149→
+   150→        images.push(dataUrl);
+   151→        root.unmount();
+   152→        container.removeChild(wrapper);
+   153→      }
+   154→    } finally {
+   155→      document.body.removeChild(container);
+   156→    }
+   157→
+   158→    return images;
+   159→  }, []);
+   160→
+   161→  const handleConnect = async () => {
+   162→    if (!formUsername || !formToken || !formUserId) return;
+   163→    setIsConnecting(true);
+   164→    try {
+   165→      const res = await fetch('/api/instagram/connect', {
+   166→        method: 'POST',
+   167→        headers: { 'Content-Type': 'application/json' },
+   168→        body: JSON.stringify({
+   169→          username: formUsername.replace('@', ''),
+   170→          accessToken: formToken,
+   171→          instagramUserId: formUserId,
+   172→        }),
+   173→      });
+   174→      if (res.ok) {
+   175→        setConnected(true);
+   176→        setUsername(formUsername.replace('@', ''));
+   177→        setConnectDialogOpen(false);
+   178→      }
+   179→    } catch { /* ignore */ }
+   180→    setIsConnecting(false);
+   181→  };
+   182→
+   183→  const handleRegenerateCaption = async () => {
+   184→    if (!selectedCarousel?.slides?.length) return;
+   185→    setIsRegeneratingCaption(true);
+   186→    try {
+   187→      const res = await fetch('/api/caption/regenerate', {
+   188→        method: 'POST',
+   189→        headers: { 'Content-Type': 'application/json' },
+   190→        body: JSON.stringify({ title: selectedCarousel.title, slides: selectedCarousel.slides }),
+   191→      });
+   192→      if (!res.ok) throw new Error('Failed to regenerate');
+   193→      const data = await res.json();
+   194→      if (data.caption) setScheduleCaption(data.caption);
+   195→    } catch { /* keep current caption */ }
+   196→    setIsRegeneratingCaption(false);
+   197→  };
+   198→
+   199→  const handleDisconnect = async () => {
+   200→    setConnected(false);
+   201→    setUsername('');
+   202→  };
+   203→
+   204→  const handleSchedule = async () => {
+   205→    if (!selectedCarousel || !scheduleTime) return;
+   206→
+   207→    const slides = selectedCarousel.slides;
+   208→    if (!slides || slides.length === 0) {
+   209→      setResult({
+   210→        success: false,
+   211→        message: 'No slides found. Open the carousel in the editor first, then come back.',
+   212→      });
+   213→      return;
+   214→    }
+   215→
+   216→    setIsScheduling(true);
+   217→    setPostProgress('Generating slide images for schedule...');
+   218→    setResult(null);
+   219→
+   220→    try {
+   221→      // Pre-render slides to PNGs (same as Post Now)
+   222→      const images = await generateSlideImages(slides);
+   223→      setPostProgress('Saving scheduled post...');
+   224→
+   225→      const musicInfo = selectedTrack ? { music_asset_id: selectedTrack.id, music_start_time_in_ms: 0 } : null;
+   226→
+   227→      const res = await fetch('/api/instagram/schedule', {
+   228→        method: 'POST',
+   229→        headers: { 'Content-Type': 'application/json' },
+   230→        body: JSON.stringify({
+   231→          carouselId: selectedCarousel.id,
+   232→          // Force interpret as Dhaka time (UTC+6) to avoid browser timezone ambiguity
+   233→          scheduledTime: new Date(scheduleTime + '+06:00').toISOString(),
+   234→          caption: scheduleCaption || selectedCarousel.caption || '',
+   235→          images,
+   236→          music: musicInfo,
+   237→        }),
+   238→      });
+   239→      const data = await res.json();
+   240→      setPostProgress('');
+   241→      if (res.ok && scheduleTime) {
+   242→        // Show the exact time the user picked, formatted nicely
+   243→        const [datePart, timePart] = scheduleTime.split('T');
+   244→        const [h, m] = timePart.split(':');
+   245→        const hr = parseInt(h);
+   246→        const ampm = hr >= 12 ? 'PM' : 'AM';
+   247→        const hr12 = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+   248→        const dateObj = new Date(datePart + 'T00:00:00+06:00');
+   249→        const month = dateObj.toLocaleString('en-US', { timeZone: 'Asia/Dhaka', month: 'short', day: 'numeric' });
+   250→        setResult({ success: true, message: `Scheduled for ${month} at ${hr12}:${m} ${ampm} (Dhaka time)` });
+   251→      } else {
+   252→        setResult({ success: res.ok, message: res.ok ? data.message : data.error });
+   253→      }
+   254→      if (res.ok) onActionComplete();
+   255→    } catch {
+   256→      setPostProgress('');
+   257→      setResult({ success: false, message: 'Network error' });
+   258→    }
+   259→    setIsScheduling(false);
+   260→  };
+   261→
+   262→  const handlePostNow = async () => {
+   263→    if (!selectedCarousel) return;
+   264→
+   265→    const slides = selectedCarousel.slides;
+   266→    if (!slides || slides.length === 0) {
+   267→      setResult({
+   268→        success: false,
+   269→        message: 'No slides found. The carousel data could not be loaded. Try opening the carousel in the editor first, then come back.',
+   270→      });
+   271→      return;
+   272→    }
+   273→
+   274→    const musicInfo = selectedTrack ? { music_asset_id: selectedTrack.id, music_start_time_in_ms: 0 } : null;
+   275→    if (!confirm(`Post "${selectedCarousel.title}" to @${username} now?${musicInfo ? ` With music: ${selectedTrack.title}` : ''} This will upload ${slides.length} slides.`)) return;
+   276→
+   277→    setIsPosting(true);
+   278→    setPostProgress('Generating slide images...');
+   279→    setResult(null);
+   280→
+   281→    try {
+   282→      const images = await generateSlideImages(slides);
+   283→      setPostProgress('Sending to queue...');
+   284→
+   285→      const res = await fetch('/api/instagram/post', {
+   286→        method: 'POST',
+   287→        headers: { 'Content-Type': 'application/json' },
+   288→        body: JSON.stringify({
+   289→          carouselId: selectedCarousel.id,
+   290→          caption: scheduleCaption || selectedCarousel.caption || '',
+   291→          images,
+   292→          music: musicInfo,
+   293→        }),
+   294→      });
+   295→
+   296→      const data = await res.json();
+   297→
+   298→      if (!res.ok) {
+   299→        setPostProgress('');
+   300→        setResult({ success: false, message: data.error || 'Failed to post.' });
+   301→        setIsPosting(false);
+   302→        return;
+   303→      }
+   304→
+   305→      // Immediate result (shouldn't happen anymore but kept as fallback)
+   306→      if (data.status === 'done' || (data.success && data.url)) {
+   307→        setPostProgress('');
+   308→        setResult({ success: true, message: data.message + (data.url ? `\n\nView: ${data.url}` : '') });
+   309→        onActionComplete();
+   310→        setIsPosting(false);
+   311→        return;
+   312→      }
+   313→
+   314→      // Async processing — poll for result (both Render and local dev)
+   315→      const pollId = data.jobId || data.carouselId;
+   316→      if (!pollId) {
+   317→        setPostProgress('');
+   318→        setResult({ success: false, message: 'Unexpected response from server.' });
+   319→        setIsPosting(false);
+   320→        return;
+   321→      }
+   322→
+   323→      const pollUrl = data.jobId
+   324→        ? `/api/instagram/post?jobId=${pollId}`
+   325→        : `/api/instagram/post?carouselId=${pollId}`;
+   326→
+   327→      setPostProgress(data.message || 'Uploading to Instagram (this takes 1-3 minutes)...');
+   328→
+   329→      const pollResult = await new Promise<{ success: boolean; message: string }>((resolve) => {
+   330→        let attempts = 0;
+   331→        const interval = setInterval(async () => {
+   332→          attempts++;
+   333→          try {
+   334→            const statusRes = await fetch(pollUrl);
+   335→            const statusData = await statusRes.json();
+   336→
+   337→            // Update progress message if available
+   338→            if (statusData.message && statusData.status === 'processing') {
+   339→              setPostProgress(statusData.message);
+   340→            }
+   341→
+   342→            if (statusData.status === 'done' || (statusData.success && statusData.status !== 'processing')) {
+   343→              clearInterval(interval);
+   344→              resolve({ success: true, message: statusData.message + (statusData.url ? `\n\nView: ${statusData.url}` : '') });
+   345→            } else if (statusData.status === 'error' || statusData.success === false) {
+   346→              clearInterval(interval);
+   347→              resolve({ success: false, message: statusData.message || 'Posting failed.' });
+   348→            } else if (attempts > 120) { // 6 minutes max
+   349→              clearInterval(interval);
+   350→              resolve({ success: false, message: 'Posting timed out. Check your Instagram account manually.' });
+   351→            }
+   352→          } catch { /* keep polling */ }
+   353→        }, 3000);
+   354→      });
+   355→
+   356→      setPostProgress('');
+   357→      setResult(pollResult);
+   358→      if (pollResult.success) onActionComplete();
+   359→
+   360→    } catch (err) {
+   361→      setPostProgress('');
+   362→      setResult({ success: false, message: err instanceof Error ? err.message : 'An unexpected error occurred.' });
+   363→    }
+   364→
+   365→    setIsPosting(false);
+   366→  };
+   367→
+   368→  const formatDuration = (ms: number) => {
+   369→    if (!ms) return '';
+   370→    const s = Math.floor(ms / 1000);
+   371→    const m = Math.floor(s / 60);
+   372→    const sec = s % 60;
+   373→    return `${m}:${sec.toString().padStart(2, '0')}`;
+   374→  };
+   375→
+   376→  return (
+   377→    <div className="max-w-2xl mx-auto space-y-8">
+   378→      <div className="text-center space-y-3">
+   379→        <h2 className="text-2xl font-bold text-white tracking-tight">Instagram Integration</h2>
+   380→        <p className="text-white/40 text-sm max-w-md mx-auto leading-relaxed">
+   381→          Connect your Instagram account to post carousels directly.
+   382→        </p>
+   383→      </div>
+   384→
+   385→      {/* Connection Status */}
+   386→      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
+   387→        <div className="flex items-center justify-between mb-4">
+   388→          <div className="flex items-center gap-3">
+   389→            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${connected ? 'bg-emerald-500/15' : 'bg-white/5'}`}>
+   390→              <Instagram className={`w-5 h-5 ${connected ? 'text-emerald-400' : 'text-white/30'}`} />
+   391→            </div>
+   392→            <div>
+   393→              <p className="text-sm font-medium text-white/80">
+   394→                {connected ? `@${username}` : 'Not Connected'}
+   395→              </p>
+   396→              <p className="text-[11px] text-white/30">
+   397→                {connected ? 'Instagram Business account linked' : 'Connect to enable posting'}
+   398→              </p>
+   399→            </div>
+   400→          </div>
+   401→          {connected ? (
+   402→            <Button
+   403→              variant="ghost"
+   404→              size="sm"
+   405→              onClick={handleDisconnect}
+   406→              className="text-red-400/60 hover:text-red-400 hover:bg-red-500/10 text-xs gap-1.5 h-8"
+   407→            >
+   408→              <Unlink className="w-3 h-3" /> Disconnect
+   409→            </Button>
+   410→          ) : (
+   411→            <Dialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen}>
+   412→              <DialogTrigger asChild>
+   413→                <Button size="sm" className="bg-white text-black hover:bg-white/90 text-xs gap-1.5 h-8">
+   414→                  <Link2 className="w-3 h-3" /> Connect
+   415→                </Button>
+   416→              </DialogTrigger>
+   417→              <DialogContent className="bg-[#111] border-white/10 text-white max-w-md">
+   418→                <DialogHeader>
+   419→                  <DialogTitle className="text-white">Connect Instagram</DialogTitle>
+   420→                </DialogHeader>
+   421→                <div className="space-y-4 pt-2">
+   422→                  <div className="space-y-1.5">
+   423→                    <Label className="text-white/50 text-xs">Username</Label>
+   424→                    <Input value={formUsername} onChange={(e) => setFormUsername(e.target.value)} placeholder="@yourbrand" className="bg-white/5 border-white/10 text-white placeholder:text-white/20" />
+   425→                  </div>
+   426→                  <div className="space-y-1.5">
+   427→                    <Label className="text-white/50 text-xs">Access Token</Label>
+   428→                    <Input value={formToken} onChange={(e) => setFormToken(e.target.value)} placeholder="EAA..." type="password" className="bg-white/5 border-white/10 text-white placeholder:text-white/20" />
+   429→                  </div>
+   430→                  <div className="space-y-1.5">
+   431→                    <Label className="text-white/50 text-xs">Instagram User ID</Label>
+   432→                    <Input value={formUserId} onChange={(e) => setFormUserId(e.target.value)} placeholder="17841400..." className="bg-white/5 border-white/10 text-white placeholder:text-white/20" />
+   433→                  </div>
+   434→                  <Button onClick={handleConnect} disabled={!formUsername || !formToken || !formUserId || isConnecting} className="w-full bg-white text-black hover:bg-white/90 text-xs h-9">
+   435→                    {isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-3.5 h-3.5 mr-1.5" />}
+   436→                    Connect Account
+   437→                  </Button>
+   438→                </div>
+   439→              </DialogContent>
+   440→            </Dialog>
+   441→          )}
+   442→        </div>
+   443→      </div>
+   444→
+   445→      {/* Schedule / Post Section */}
+   446→      {selectedCarousel && connected && (
+   447→        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 space-y-4">
+   448→          <div className="flex items-center gap-2">
+   449→            <Calendar className="w-4 h-4 text-white/30" />
+   450→            <p className="text-sm font-medium text-white/80">Post: {selectedCarousel.title}</p>
+   451→            {selectedCarousel.slides && (
+   452→              <span className="text-[10px] text-white/25 ml-auto">{selectedCarousel.slides.length} slides</span>
+   453→            )}
+   454→          </div>
+   455→
+   456→          {/* Caption */}
+   457→          <div className="space-y-1.5">
+   458→            <div className="flex items-center justify-between">
+   459→              <Label className="text-white/50 text-xs">Caption</Label>
+   460→              <Button type="button" variant="ghost" size="sm" onClick={handleRegenerateCaption} disabled={isRegeneratingCaption || !selectedCarousel?.slides?.length} className="text-white/40 hover:text-white/70 hover:bg-white/5 text-[11px] gap-1.5 h-6 px-2">
+   461→                {isRegeneratingCaption ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+   462→                Regenerate
+   463→              </Button>
+   464→            </div>
+   465→            <Textarea value={scheduleCaption || selectedCarousel?.caption || ''} onChange={(e) => setScheduleCaption(e.target.value)} rows={4} className="bg-white/5 border-white/10 text-white placeholder:text-white/20 text-xs resize-none" placeholder="Add your caption with hashtags..." />
+   466→          </div>
+   467→
+   468→          {/* Music Section */}
+   469→          <div className="space-y-2">
+   470→            <div className="flex items-center justify-between">
+   471→              <div className="flex items-center gap-2">
+   472→                <Music className="w-3.5 h-3.5 text-white/40" />
+   473→                <Label className="text-white/50 text-xs">Music (optional)</Label>
+   474→              </div>
+   475→              {!selectedTrack && (
+   476→                <Button type="button" variant="ghost" size="sm" onClick={() => setShowMusicPicker(true)} className="text-white/40 hover:text-white/70 hover:bg-white/5 text-[11px] gap-1.5 h-6 px-2">
+   477→                  <Search className="w-3 h-3" />
+   478→                  Browse
+   479→                </Button>
+   480→              )}
+   481→            </div>
+   482→
+   483→            {/* Selected track display */}
+   484→            {selectedTrack ? (
+   485→              <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.04] border border-white/10">
+   486→                <div className="w-10 h-10 rounded-md bg-gradient-to-br from-purple-500/30 to-pink-500/30 flex items-center justify-center flex-shrink-0">
+   487→                  <Disc3 className="w-5 h-5 text-white/60" />
+   488→                </div>
+   489→                <div className="flex-1 min-w-0">
+   490→                  <p className="text-xs font-medium text-white/80 truncate">{selectedTrack.title}</p>
+   491→                  <p className="text-[11px] text-white/40 truncate">{selectedTrack.artist}{selectedTrack.genre ? ` · ${selectedTrack.genre}` : ''}</p>
+   492→                </div>
+   493→                <div className="flex items-center gap-1">
+   494→                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowMusicPicker(true)} className="text-white/30 hover:text-white/60 hover:bg-white/5 h-7 w-7 p-0">
+   495→                    <RefreshCw className="w-3 h-3" />
+   496→                  </Button>
+   497→                  <Button type="button" variant="ghost" size="sm" onClick={handleRemoveMusic} className="text-white/30 hover:text-red-400 hover:bg-red-500/10 h-7 w-7 p-0">
+   498→                    <X className="w-3.5 h-3.5" />
+   499→                  </Button>
+   500→                </div>
+   501→              </div>
+   502→            ) : (
+   503→              <div onClick={() => setShowMusicPicker(true)} className="flex items-center justify-center gap-2 p-3 rounded-lg border border-dashed border-white/10 hover:border-white/20 hover:bg-white/[0.02] cursor-pointer transition-colors">
+   504→                <Music className="w-3.5 h-3.5 text-white/20" />
+   505→                <span className="text-[11px] text-white/25">Add music to your carousel</span>
+   506→              </div>
+   507→            )}
+   508→          </div>
+   509→
+   510→          {/* Music Picker Dialog */}
+   511→          <Dialog open={showMusicPicker} onOpenChange={setShowMusicPicker}>
+   512→            <DialogContent className="bg-[#0d0d0d] border-white/10 text-white max-w-md p-0 gap-0 max-h-[85vh] overflow-hidden">
+   513→              <div className="p-4 pb-3 border-b border-white/5">
+   514→                <DialogHeader>
+   515→                  <DialogTitle className="text-white text-sm font-semibold">Add Music</DialogTitle>
+   516→                </DialogHeader>
+   517→              </div>
+   518→
+   519→              {/* Search input */}
+   520→              <div className="px-4 py-3 border-b border-white/5">
+   521→                <div className="relative">
+   522→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+   523→                  <Input
+   524→                    value={musicSearchQuery}
+   525→                    onChange={(e) => handleMusicSearchChange(e.target.value)}
+   526→                    placeholder="Search songs, artists..."
+   527→                    className="bg-white/5 border-white/10 text-white placeholder:text-white/25 text-xs pl-9 h-9"
+   528→                    autoFocus
+   529→                  />
+   530→                  {isSearchingMusic && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30 animate-spin" />}
+   531→                </div>
+   532→              </div>
+   533→
+   534→              {/* Trending suggestions */}
+   535→              {!musicSearchQuery.trim() && (
+   536→                <div className="px-4 py-3 border-b border-white/5">
+   537→                  <div className="flex items-center gap-1.5 mb-2.5">
+   538→                    <TrendingUp className="w-3 h-3 text-white/30" />
+   539→                    <span className="text-[10px] text-white/30 uppercase tracking-widest font-medium">Trending on Instagram</span>
+   540→                  </div>
+   541→                  <div className="flex flex-wrap gap-1.5">
+   542→                    {TRENDING_QUERIES.map((q) => (
+   543→                      <button
+   544→                        key={q}
+   545→                        onClick={() => handleTrendingClick(q)}
+   546→                        className="px-2.5 py-1 rounded-full bg-white/5 border border-white/8 text-white/50 text-[11px] hover:bg-white/10 hover:text-white/70 hover:border-white/15 transition-all"
+   547→                      >
+   548→                        {q}
+   549→                      </button>
+   550→                    ))}
+   551→                  </div>
+   552→                </div>
+   553→              )}
+   554→
+   555→              {/* Results */}
+   556→              <div className="overflow-y-auto max-h-[40vh]">
+   557→                {musicResults.length === 0 && !isSearchingMusic && musicSearchQuery.trim() && (
+   558→                  <div className="p-6 text-center">
+   559→                    <Music className="w-8 h-8 text-white/10 mx-auto mb-2" />
+   560→                    <p className="text-[11px] text-white/25">No results found. Try a different search.</p>
+   561→                  </div>
+   562→                )}
+   563→                {musicResults.map((track, i) => (
+   564→                  <button
+   565→                    key={track.id || i}
+   566→                    onClick={() => handleSelectTrack(track)}
+   567→                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors text-left border-b border-white/[0.03] last:border-0"
+   568→                  >
+   569→                    <div className="w-9 h-9 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
+   570→                      <Play className="w-3.5 h-3.5 text-white/40" />
+   571→                    </div>
+   572→                    <div className="flex-1 min-w-0">
+   573→                      <p className="text-xs text-white/80 truncate">{track.display_name || track.title}</p>
+   574→                      <p className="text-[10px] text-white/35 truncate">
+   575→                        {track.artist}
+   576→                        {track.genre ? ` · ${track.genre}` : ''}
+   577→                      </p>
+   578→                    </div>
+   579→                  </button>
+   580→                ))}
+   581→                {!musicSearchQuery.trim() && (
+   582→                  <div className="p-4 text-center">
+   583→                    <p className="text-[11px] text-white/20">Search or tap a trending genre above to find music</p>
+   584→                  </div>
+   585→                )}
+   586→              </div>
+   587→            </DialogContent>
+   588→          </Dialog>
+   589→
+   590→          {/* Schedule */}
+   591→          <div className="space-y-1.5">
+   592→            <Label className="text-white/50 text-xs">Schedule Date & Time</Label>
+   593→            <Input type="datetime-local" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="bg-white/5 border-white/10 text-white placeholder:text-white/20 [color-scheme:dark]" />
+   594→          </div>
+   595→
+   596→          <div className="flex gap-2">
+   597→            <Button onClick={handleSchedule} disabled={!scheduleTime || isScheduling} className="flex-1 bg-white text-black hover:bg-white/90 text-xs gap-1.5 h-9">
+   598→              {isScheduling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
+   599→              Schedule Post
+   600→            </Button>
+   601→            <Button onClick={handlePostNow} disabled={isPosting} className="flex-1 bg-black text-white border border-white/20 hover:bg-white/10 text-xs gap-1.5 h-9">
+   602→              {isPosting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+   603→              Post Now
+   604→            </Button>
+   605→          </div>
+   606→
+   607→          {postProgress && (
+   608→            <div className="flex items-center gap-2 text-xs text-white/40">
+   609→              <Loader2 className="w-3 h-3 animate-spin" />
+   610→              {postProgress}
+   611→            </div>
+   612→          )}
+   613→
+   614→          {result && (
+   615→            <div className={`flex items-start gap-2 p-3 rounded-lg text-xs whitespace-pre-line ${
+   616→              result.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+   617→            }`}>
+   618→              {result.success ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+   619→              <span className="leading-relaxed">{result.message}</span>
+   620→            </div>
+   621→          )}
+   622→        </div>
+   623→      )}
+   624→
+   625→      {!selectedCarousel && connected && (
+   626→        <div className="text-center py-8">
+   627→          <p className="text-white/20 text-xs">Select a carousel from the dashboard to post it</p>
+   628→        </div>
+   629→      )}
+   630→    </div>
+   631→  );
+   632→}
