@@ -60,6 +60,7 @@ async function apiWithRetry(fn: () => Promise<any>, label: string): Promise<any>
       const isRetryable = 
         msg.includes('API [4]') ||
         msg.includes('API [80004]') ||
+        msg.includes('API [9007]') ||
         msg.includes('API [-1]') ||
         msg.includes('timed out') ||
         msg.includes('ECONNRESET') ||
@@ -86,7 +87,7 @@ async function carouselContainerWithRetry(
       const msg = err?.message || '';
       const isRetryable = msg.includes('API [9007]') || msg.includes('API [4]') || msg.includes('API [80004]') || msg.includes('API [-1]') || msg.includes('Fatal') || msg.includes('timed out') || msg.includes('ECONNRESET') || msg.includes('socket hang up');
       if (!isRetryable || attempt === 5) throw err;
-      const wait = 15000 + (attempt * 5000);
+      const wait = 8000 + (attempt * 3000);
       console.log(`[IG] Carousel container retry ${attempt + 1}/6: ${msg.substring(0, 80)}. Waiting ${wait / 1000}s...`);
       await new Promise(r => setTimeout(r, wait));
     }
@@ -163,9 +164,29 @@ export async function postCarouselToInstagram(payload: {
     if (i < cdnUrls.length - 1) await new Promise(r => setTimeout(r, 1000));
   }
 
-  // Step 3.5: Wait for containers to process
-  console.log(`[IG] Waiting 15s for ${containerIds.length} containers to process...`);
-  await new Promise(r => setTimeout(r, 15000));
+  // Step 3.5: Poll each individual container to FINISHED before creating carousel
+  console.log(`[IG] Step 3.5: Polling ${containerIds.length} individual containers to FINISHED...`);
+  for (let i = 0; i < containerIds.length; i++) {
+    const cid = containerIds[i];
+    let finished = false;
+    for (let poll = 0; poll < 20; poll++) {
+      try {
+        const status = await httpGet(`${API_BASE}/${cid}?fields=status_code&access_token=${pageToken}`);
+        console.log(`[IG] Container ${i} (${cid.substring(0, 12)}...) status: ${status.status_code} (poll ${poll + 1}/20)`);
+        if (status.status_code === 'FINISHED') { finished = true; break; }
+        if (status.status_code === 'ERROR') throw new Error(`Container ${i} processing failed with ERROR status`);
+        // IN_PROGRESS or other — keep polling
+      } catch (pollErr: any) {
+        const pollMsg = pollErr?.message || '';
+        if (pollMsg.includes('ERROR status')) throw pollErr;
+        // Rate limit or transient — retry
+        console.log(`[IG] Container ${i} poll error: ${pollMsg.substring(0, 80)}. Retrying...`);
+      }
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    if (!finished) throw new Error(`Container ${i} (${cid.substring(0, 12)}...) did not finish processing in time.`);
+    if (i < containerIds.length - 1) await new Promise(r => setTimeout(r, 1000));
+  }
 
   // Step 4: Create carousel container (with 9007 retry)
   console.log(`[IG] Step 4: Creating carousel container...`);
