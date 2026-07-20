@@ -118,24 +118,23 @@ export async function postCarouselToInstagram(payload: {
 }) {
   const { accessToken, pageId, igBusinessId, caption, username, images, music } = payload;
 
-  // Step 1: Get page token
-  let pageToken = accessToken;
-  try {
-    const test = await apiWithRetry(() => httpGet(`${API_BASE}/${pageId}?fields=id&access_token=${pageToken}`), 'token-check');
-    if (!test.id) throw new Error('not a page token');
-  } catch {
-    const pageData = await apiWithRetry(() => httpGet(`${API_BASE}/${pageId}?fields=access_token,instagram_business_account{id,username}&access_token=${accessToken}`), 'get-page-token');
-    pageToken = pageData.access_token;
-    if (!pageData.instagram_business_account) throw new Error('Instagram Business Account not linked to Facebook Page.');
-  }
+  // Step 1: Always get the page access token (user token can't upload unpublished photos)
+  console.log(`[IG] Step 1: Fetching page access token...`);
+  const pageData = await apiWithRetry(() => httpGet(`${API_BASE}/${pageId}?fields=access_token&access_token=${accessToken}`), 'get-page-token');
+  const pageToken = pageData.access_token;
+  if (!pageToken) throw new Error('Could not obtain page access token. The user token may lack pages_show_list permission.');
+  console.log(`[IG] Got page token (${pageToken.substring(0, 12)}...)`);
 
   // Step 2: Upload images to FB and get CDN URLs
   console.log(`[IG] Step 2: Uploading ${images.length} images...`);
   const cdnUrls: string[] = [];
   for (let i = 0; i < images.length; i++) {
+    const dataUrlMatch = images[i].match(/^data:(image\/\w+);base64,/);
+    const detectedMime = dataUrlMatch ? dataUrlMatch[1] : 'image/png';
+    const ext = detectedMime === 'image/jpeg' ? 'jpg' : 'png';
     const cleanBase64 = images[i].replace(/^data:image\/\w+;base64,/, '');
     const imageBuffer = Buffer.from(cleanBase64, 'base64');
-    const { body, contentType } = buildMultipart({ published: 'false' }, 'source', imageBuffer, `slide_${i}.png`, 'image/png');
+    const { body, contentType } = buildMultipart({ published: 'false' }, 'source', imageBuffer, `slide_${i}.${ext}`, detectedMime);
     const uploadResult = await apiWithRetry(() => httpPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }), `upload-slide-${i}`);
     console.log(`[IG] Uploaded slide ${i}, photo ID: ${uploadResult.id}`);
     const photoInfo = await apiWithRetry(() => httpGet(`${API_BASE}/${uploadResult.id}?fields=images&access_token=${pageToken}`), `cdn-url-${i}`);
