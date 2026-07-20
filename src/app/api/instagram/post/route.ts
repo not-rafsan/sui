@@ -70,12 +70,14 @@ export async function POST(request: NextRequest) {
           });
           console.log(`[IG Post] Render async — SUCCESS: ${result.url}`);
         } catch (err: any) {
-          console.error(`[IG Post] Render async — FAILED: ${err.message}`);
+          const errMsg = err?.message || 'Failed to post';
+          console.error(`[IG Post] Render async — FAILED: ${errMsg}`);
+          if (err?.stack) console.error(`[IG Post] Stack: ${err.stack.substring(0, 500)}`);
           await db.carousel.update({ where: { id: carouselId }, data: { status: 'draft' } }).catch(() => {});
           postResults.set(carouselId, {
             success: false,
             status: 'error',
-            message: err.message || 'Failed to post',
+            message: errMsg,
           });
           // Clean up after 5 minutes
           setTimeout(() => postResults.delete(carouselId), 300000);

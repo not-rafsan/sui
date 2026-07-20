@@ -20,10 +20,11 @@ function get(url) {
 function post(url, body, headers = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
-    const data = typeof body === 'string' ? body : JSON.stringify(body);
+    const isBuffer = Buffer.isBuffer(body);
+    const data = isBuffer ? body : (typeof body === 'string' ? body : JSON.stringify(body));
     const h = { ...headers };
-    if (!h['Content-Type']) h['Content-Type'] = 'application/json';
-    h['Content-Length'] = Buffer.byteLength(data);
+    if (!h['Content-Type'] && !isBuffer) h['Content-Type'] = 'application/json';
+    h['Content-Length'] = isBuffer ? data.length : Buffer.byteLength(data);
     const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname + u.search, method: 'POST', headers: h, timeout: 60000 }, res => {
       const c = [];
       res.on('data', d => c.push(d));

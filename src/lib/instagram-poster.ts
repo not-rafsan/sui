@@ -18,9 +18,9 @@ function httpPost(url: string, body: Buffer | string, headers: Record<string, st
           const data = Buffer.concat(chunks).toString('utf8');
           try {
             const json = JSON.parse(data);
-            if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
+            if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message} [POST ${urlObj.pathname}]`));
             else resolve(json);
-          } catch { reject(new Error(`Non-JSON response (${res.statusCode}): ${data.substring(0, 200)}`)); }
+          } catch { reject(new Error(`Non-JSON response (${res.statusCode}) [POST ${urlObj.pathname}]: ${data.substring(0, 200)}`)); }
         });
       }
     );
@@ -40,9 +40,9 @@ function httpGet(url: string): Promise<any> {
         const data = Buffer.concat(chunks).toString('utf8');
         try {
           const json = JSON.parse(data);
-          if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message}`));
+          if (json.error) reject(new Error(`API [${json.error.code}]: ${json.error.message} [GET ${new URL(url).pathname}]`));
           else resolve(json);
-        } catch { reject(new Error(`Non-JSON response: ${data.substring(0, 200)}`)); }
+        } catch { reject(new Error(`Non-JSON response [GET ${url.substring(0, 80)}]: ${data.substring(0, 200)}`)); }
       });
     });
     req.setTimeout(45000, () => { req.destroy(new Error('Request timed out (45s)')); });
