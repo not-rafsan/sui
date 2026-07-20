@@ -192,39 +192,37 @@ export async function postCarouselToInstagram(payload: {
   }
   if (!isReady) throw new Error('Carousel container did not finish processing in time.');
 
-  // Step 6: Publish — try page token first, then user token as fallback
+  // Step 6: Publish — use Cloudflare Worker proxy if configured (bypasses Render IP block)
   console.log(`[IG] Step 6: Publishing carousel ${carouselContainer.id}...`);
+  const proxyUrl = process.env.IG_PUBLISH_PROXY_URL;
+  const proxySecret = process.env.IG_PUBLISH_PROXY_SECRET || 'default-secret-change-me';
   let published: any;
-  const publishPayload = JSON.stringify({ creation_id: carouselContainer.id });
-  const publishHeaders = { 'Content-Type': 'application/json' };
 
-  // Attempt 1: Page token (standard approach)
-  try {
+  if (proxyUrl) {
+    // Publish via Cloudflare Worker proxy (avoids FB blocking Render datacenter IPs)
+    console.log(`[IG] Using publish proxy: ${proxyUrl.substring(0, 40)}...`);
+    published = await apiWithRetry(async () => {
+      const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${proxySecret}`,
+        },
+        body: JSON.stringify({ igBusinessId, creationId: carouselContainer.id, accessToken: pageToken }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(`API [${data.error.code}]: ${data.error.message} [PROXY]`);
+      return data;
+    }, 'publish-proxy', 5);
+  } else {
+    // Direct publish (no proxy configured — may fail from datacenter IPs)
+    console.log(`[IG] No publish proxy configured, calling FB directly...`);
     published = await apiWithRetry(() => fetchPost(
       `${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`,
-      publishPayload, publishHeaders
-    ), 'publish-page-token', 4);
-  } catch (pageErr: any) {
-    console.log(`[IG] Page token publish failed: ${pageErr.message.substring(0, 100)}`);
-    // Attempt 2: User token (some setups require the original user token for publish)
-    console.log(`[IG] Trying user token for publish...`);
-    try {
-      published = await apiWithRetry(() => fetchPost(
-        `${API_BASE}/${igBusinessId}/media_publish?access_token=${accessToken}`,
-        publishPayload, publishHeaders
-      ), 'publish-user-token', 4);
-    } catch (userErr: any) {
-      // Attempt 3: Page token via query param (official FB docs format, no JSON body)
-      console.log(`[IG] User token publish failed: ${userErr.message.substring(0, 100)}`);
-      console.log(`[IG] Trying page token with query params...`);
-      published = await apiWithRetry(() => {
-        const url = `${API_BASE}/${igBusinessId}/media_publish?creation_id=${carouselContainer.id}&access_token=${pageToken}`;
-        return fetch(url, { method: 'POST', signal: AbortSignal.timeout(60000) }).then(r => r.json()).then(d => {
-          if (d.error) throw new Error(`API [${d.error.code}]: ${d.error.message} [POST qp]`);
-          return d;
-        });
-      }, 'publish-qp', 4);
-    }
+      JSON.stringify({ creation_id: carouselContainer.id }),
+      { 'Content-Type': 'application/json' }
+    ), 'publish-direct', 5);
   }
   console.log(`[IG] Published! ID: ${published.id}`);
   return { postId: published.id, url: `https://www.instagram.com/p/${published.id}/` };
