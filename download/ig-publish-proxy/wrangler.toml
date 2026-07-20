@@ -1,0 +1,7 @@
+name = "ig-publish-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Set this via: wrangler secret put PUBLISH_SECRET
+# [vars]
+# PUBLISH_SECRET = "change-me-in-production"
