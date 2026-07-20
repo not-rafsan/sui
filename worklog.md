@@ -11,9 +11,13 @@ Work Log:
 - Pushed fix to GitHub (`not-rafsan/sui` main branch)
 - Ran full end-to-end carousel test locally — completed successfully with post ID on Instagram
 - Confirmed post live at `https://www.instagram.com/p/DF_XMoNyMbR/`
+- Tested on Render with generated 1080x1080 JPEG slides — carousel posted successfully via the deployed app
+- Confirmed success response: `{"success":true,"status":"done","url":"https://www.instagram.com/p/DF_YZJy1XGB/"}`
 
 Stage Summary:
 - Root cause: User token cannot upload unpublished photos to FB Page. The exchange-to-page-token logic only triggered on "must be posted" / "API [200]" errors, but the actual error was API [-1] Fatal.
 - Fix: Unconditionally fetch page access token at the start of `postCarouselToInstagram()`
-- Verification: Successful 3-slide carousel posted to @drudolearn via direct API test
-- Render will auto-deploy from the push; next post through the app should work
+- Verification: 
+  1. Local direct API test: 3-slide carousel posted successfully (ID: DF_XMoNyMbR)
+  2. Render app test: 3-slide carousel posted successfully via the app (ID: DF_YZJy1XGB)
+- Both posts are live on @drudolearn Instagram account
