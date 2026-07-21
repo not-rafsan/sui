@@ -33,6 +33,12 @@ export async function POST(request: NextRequest) {
     const carousel = await db.carousel.findUnique({ where: { id: carouselId } });
     if (!carousel) return NextResponse.json({ error: 'Carousel not found' }, { status: 404 });
 
+    // Extract image data: support both base64 strings and {imageUrl, caption} objects
+    const imageStrings: string[] = (images as any[]).map((img: any) => {
+      if (typeof img === 'string') return img;
+      return img.imageUrl || img.dataUrl || img.url || JSON.stringify(img);
+    });
+
     const payload = {
       accessToken: account.accessToken,
       pageId: '1172339492635726',
@@ -40,7 +46,7 @@ export async function POST(request: NextRequest) {
       carouselId,
       caption: caption || carousel.caption || '',
       username: account.username,
-      images,
+      images: imageStrings,
       music: music || null,
     };
 

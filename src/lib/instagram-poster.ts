@@ -117,11 +117,29 @@ export async function postCarouselToInstagram(payload: {
   console.log(`[IG] Step 2: Uploading ${images.length} images...`);
   const cdnUrls: string[] = [];
   for (let i = 0; i < images.length; i++) {
-    const dataUrlMatch = images[i].match(/^data:(image\/\w+);base64,/);
-    const detectedMime = dataUrlMatch ? dataUrlMatch[1] : 'image/png';
-    const ext = detectedMime === 'image/jpeg' ? 'jpg' : 'png';
-    const cleanBase64 = images[i].replace(/^data:image\/\w+;base64,/, '');
-    const imageBuffer = Buffer.from(cleanBase64, 'base64');
+    let imageBuffer: Buffer;
+    let detectedMime: string;
+    let ext: string;
+
+    const img = images[i];
+    if (img.startsWith('http')) {
+      // Download image from URL
+      console.log(`[IG] Downloading image ${i} from URL...`);
+      const imgRes = await fetch(img, { signal: AbortSignal.timeout(30000) });
+      if (!imgRes.ok) throw new Error(`Failed to download image ${i}: ${imgRes.status}`);
+      const contentType = imgRes.headers.get('content-type') || '';
+      detectedMime = contentType.includes('jpeg') || contentType.includes('jpg') ? 'image/jpeg' : 'image/png';
+      ext = detectedMime === 'image/jpeg' ? 'jpg' : 'png';
+      const arrBuf = await imgRes.arrayBuffer();
+      imageBuffer = Buffer.from(arrBuf);
+    } else {
+      // Base64 data URL
+      const dataUrlMatch = img.match(/^data:(image\/\w+);base64,/);
+      detectedMime = dataUrlMatch ? dataUrlMatch[1] : 'image/png';
+      ext = detectedMime === 'image/jpeg' ? 'jpg' : 'png';
+      const cleanBase64 = img.replace(/^data:image\/\w+;base64,/, '');
+      imageBuffer = Buffer.from(cleanBase64, 'base64');
+    }
     const { body, contentType } = buildMultipart({ published: 'false' }, 'source', imageBuffer, `slide_${i}.${ext}`, detectedMime);
     const uploadResult = await apiWithRetry(() => fetchPost(`${API_BASE}/${pageId}/photos?access_token=${pageToken}`, body, { 'Content-Type': contentType, 'Content-Length': body.length.toString() }), `upload-slide-${i}`);
     console.log(`[IG] Uploaded slide ${i}, photo ID: ${uploadResult.id}`);
@@ -192,40 +210,29 @@ export async function postCarouselToInstagram(payload: {
   }
   if (!isReady) throw new Error('Carousel container did not finish processing in time.');
 
-  // Step 6: Publish — use https module (same as local test which works)
-  // fetch() causes API [-1] on Render for media_publish specifically.
-  // Dynamic import avoids Turbopack tracing https at build time.
+  // Step 6: Publish — use Cloudflare Worker proxy to bypass Render IP blocking
+  // Direct calls to media_publish from Render datacenter IPs get API [-1]
   console.log(`[IG] Step 6: Publishing carousel ${carouselContainer.id}...`);
-  const https = await import('https');
-  const published = await apiWithRetry(() => new Promise<any>((resolve, reject) => {
-    const u = new URL(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`);
-    const payload = JSON.stringify({ creation_id: carouselContainer.id });
-    const req = https.request({
-      hostname: u.hostname, port: 443,
-      path: u.pathname + u.search,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'node',
-      },
-      timeout: 60000,
-    }, (res) => {
-      const c: Buffer[] = [];
-      res.on('data', (d: Buffer) => c.push(d));
-      res.on('end', () => {
-        try {
-          const j = JSON.parse(Buffer.concat(c).toString());
-          if (j.error) reject(new Error(`API [${j.error.code}]: ${j.error.message} [HTTPS-PUBLISH]`));
-          else resolve(j);
-        } catch (e) { reject(e); }
+  const proxyUrl = process.env.IG_PUBLISH_PROXY_URL;
+  const proxySecret = process.env.IG_PUBLISH_PROXY_SECRET || 'default-secret-change-me';
+  let published: any;
+  if (proxyUrl) {
+    console.log(`[IG] Using CF proxy for publish: ${proxyUrl}`);
+    published = await apiWithRetry(async () => {
+      const res = await fetch(proxyUrl!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${proxySecret}` },
+        body: JSON.stringify({ igBusinessId, creationId: carouselContainer.id, accessToken: pageToken }),
+        signal: AbortSignal.timeout(60000),
       });
-    });
-    req.on('timeout', () => { req.destroy(new Error('timeout')); });
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  }), 'publish', 5);
+      const data = await res.json();
+      if (data.error) throw new Error(`API [${data.error.code}]: ${data.error.message} [PROXY]`);
+      return data;
+    }, 'publish-proxy', 5);
+  } else {
+    console.log(`[IG] No proxy configured, publishing directly...`);
+    published = await apiWithRetry(() => fetchPost(`${API_BASE}/${igBusinessId}/media_publish?access_token=${pageToken}`, JSON.stringify({ creation_id: carouselContainer.id })), 'publish-direct', 5);
+  }
   console.log(`[IG] Published! ID: ${published.id}`);
   return { postId: published.id, url: `https://www.instagram.com/p/${published.id}/` };
 }
